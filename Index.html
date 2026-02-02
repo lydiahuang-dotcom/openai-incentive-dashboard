@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root{
+        --bg:#0b1220;
+        --muted:#9bb0d1;
+        --text:#eaf0ff;
+        --border:rgba(255,255,255,.08);
+        --shadow: 0 10px 30px rgba(0,0,0,.35);
+        --gold1:#ffd978;
+        --gold2:#ffbf2f;
+        --gold3:#b87a13;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      }
+
+      body{
+        margin:0;
+        background: linear-gradient(180deg, var(--bg), #070c16);
+        color:var(--text);
+        padding:20px;
+      }
+      .container{ max-width: 1100px; margin:0 auto; }
+
+      .header{
+        display:flex; align-items:center; justify-content:space-between;
+        margin-bottom:14px;
+        gap:12px;
+      }
+      .title{ font-size:20px; font-weight:700; }
+      .subtitle{ color:var(--muted); font-size:13px; line-height:1.35; }
+
+      .grid-top{
+        display:grid;
+        grid-template-columns: 2.2fr 1.3fr;
+        gap:14px;
+      }
+
+      .card{
+        background: rgba(255,255,255,.03);
+        border:1px solid var(--border);
+        box-shadow: var(--shadow);
+        border-radius:16px;
+        padding:16px;
+        display:flex;
+        flex-direction:column;
+      }
+      .card h3{
+        margin:0 0 12px 0;
+        font-size:14px;
+        color:var(--muted);
+        font-weight:650;
+        text-align:left;
+        flex:0 0 auto;
+      }
+      .cardBody{
+        flex:1 1 auto;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+        gap:12px;
+      }
+
+      .completionsRow{
+        display:flex;
+        align-items:baseline;
+        justify-content:center;
+        gap:12px;
+        flex-wrap:wrap;
+      }
+      .big{
+        font-size:44px;
+        font-weight:950;
+        letter-spacing:.2px;
+        line-height:1;
+      }
+      .bigLabel{
+        font-size:44px;
+        font-weight:850;
+        letter-spacing:.2px;
+        line-height:1;
+        color: rgba(234,240,255,.92);
+      }
+
+      .line{ color:var(--muted); font-size:14px; margin:0; }
+
+      .bar{
+        width:100%;
+        height:18px;
+        border-radius:999px;
+        background: rgba(255,255,255,.12);
+        overflow:hidden;
+        border: 1px solid rgba(255,255,255,.08);
+      }
+      .bar > div{
+        height:100%;
+        width:0%;
+        background: linear-gradient(90deg, rgba(122,167,255,.95), rgba(46,229,157,.95));
+        transition: width .6s ease;
+      }
+
+      .note{ font-size:13px; color:var(--muted); margin:0; }
+
+      button{
+        background: rgba(255,255,255,.06);
+        border:1px solid var(--border);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 10px;
+        cursor:pointer;
+        font-weight:650;
+        white-space:nowrap;
+      }
+      button:hover{ background: rgba(255,255,255,.10); }
+
+      .earnings{
+        margin-top:14px;
+        padding:20px 16px;
+        border-radius:16px;
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.04);
+        box-shadow: var(--shadow);
+        text-align:center;
+      }
+      .earnings .val{
+        font-size:24px;
+        font-weight:950;
+        margin:0;
+        letter-spacing:.2px;
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+      }
+
+      .popIn{ animation: popIn 520ms cubic-bezier(.2,.9,.2,1) both; }
+      @keyframes popIn{
+        0%   { opacity: 0; transform: translateY(10px) scale(0.96); }
+        60%  { opacity: 1; transform: translateY(0px)  scale(1.02); }
+        100% { opacity: 1; transform: translateY(0px)  scale(1); }
+      }
+
+      .avgLine{ color: var(--muted); font-size: 13px; margin:0; }
+      .avgLine b{ color: rgba(234,240,255,.92); font-weight: 900; }
+
+      /* Footnote bar */
+      .footnoteBar{
+        margin-top:14px;
+        padding:10px 16px;
+        border-radius:12px;
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.03);
+        box-shadow: var(--shadow);
+        color: rgba(234,240,255,.92);   /* same color family as earnings text */
+        font-weight:400;                /* NOT bold */
+        text-align:center;
+      }
+
+      /* font-size tuning */
+      .footnoteBar.small { font-size:11.5px; }
+
+
+      /* Badge */
+      .badgeWrap{ display:flex; justify-content:center; }
+      .shieldBadge{
+        width: 205px;
+        height: 180px;
+        position: relative;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        filter: drop-shadow(0 22px 34px rgba(0,0,0,.55));
+        transform-style: preserve-3d;
+        perspective: 900px;
+      }
+      .shieldBadge::before{
+        content:"";
+        position:absolute;
+        inset:-20px;
+        background: radial-gradient(circle at 50% 42%, rgba(255,191,47,.28), rgba(255,191,47,0) 66%);
+        opacity: 1;
+        z-index:0;
+        pointer-events:none;
+      }
+      .shieldRim{
+        position:absolute;
+        inset:0;
+        border-radius: 18px;
+        clip-path: polygon(50% 0%, 90% 12%, 100% 42%, 82% 78%, 50% 100%, 18% 78%, 0% 42%, 10% 12%);
+        background: linear-gradient(180deg, rgba(255,217,120,.95), rgba(255,191,47,.90), rgba(184,122,19,.85));
+        z-index:1;
+      }
+      .shieldInner{
+        position:absolute;
+        inset:7px;
+        border-radius: 16px;
+        clip-path: polygon(50% 0%, 90% 12%, 100% 42%, 82% 78%, 50% 100%, 18% 78%, 0% 42%, 10% 12%);
+        background:
+          radial-gradient(170px 140px at 50% 30%, rgba(255,255,255,.10), rgba(255,255,255,0) 55%),
+          linear-gradient(180deg, rgba(12,18,32,.92), rgba(6,10,18,.92));
+        border: 1px solid rgba(255,255,255,.08);
+        z-index:2;
+        overflow:hidden;
+        transform: translateZ(8px);
+      }
+      .shieldInner::after{
+        content:"";
+        position:absolute;
+        width: 140%;
+        height: 60%;
+        top: -18%;
+        left: -20%;
+        transform: rotate(-12deg);
+        background: linear-gradient(90deg, rgba(255,255,255,.12), rgba(255,255,255,0));
+        opacity:.5;
+      }
+      .shieldContent{
+        position:relative;
+        z-index:3;
+        width:100%;
+        text-align:center;
+        padding-top: 12px;
+        transform: translateZ(18px);
+      }
+      .badgeMain{
+        font-weight: 950;
+        font-size: 28px;
+        letter-spacing:.2px;
+        text-shadow: 0 3px 18px rgba(0,0,0,.65);
+      }
+      .badgeSub{
+        margin-top: 6px;
+        font-weight: 850;
+        font-size: 15px;
+        color: rgba(234,240,255,.92);
+        text-shadow: 0 3px 18px rgba(0,0,0,.65);
+      }
+      .noBadge::before{ opacity:.25; }
+      .noBadge .shieldRim{
+        background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.10));
+      }
+      .noBadge .badgeSub{ color: var(--muted); font-weight:700; }
+      .noBadge .badgeMain{ color: rgba(234,240,255,.65); font-weight:850; }
+
+      @keyframes spinZoomIn {
+        0%   { transform: translateZ(-120px) rotateY(0deg) rotateX(10deg) scale(0.82); opacity: 0; }
+        25%  { opacity: 1; }
+        100% { transform: translateZ(0px) rotateY(360deg) rotateX(0deg) scale(1); opacity: 1; }
+      }
+      .animateBadge{
+        animation: spinZoomIn 900ms cubic-bezier(.2,.9,.2,1) both;
+      }
+
+      /* Leaderboard (stacked) */
+      .leaderboardWrap{ margin-top:14px; }
+      .leaderSection{ margin-top:14px; }
+      .top10Grid{
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:10px;
+      }
+     
+      .card h3.goldHeading{
+        color: var(--gold2);
+        text-shadow: 0 6px 18px rgba(0,0,0,.55);
+        letter-spacing: .6px;
+      }
+
+
+      .leaderRow{
+        display:grid;
+        grid-template-columns: auto 1fr auto;
+        gap:10px;
+        align-items:center;
+        padding:8px 10px;
+        border-radius:12px;
+        border:1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.03);
+        margin-bottom:8px;
+      }
+      .leaderLeft{
+        display:flex;
+        gap:10px;
+        align-items:baseline;
+        justify-content:flex-start;
+        min-width:0;
+      }
+      .rank{
+        color: rgba(234,240,255,.92);
+        font-weight: 900;
+        width: 38px;
+        text-align:left;
+      }
+      .name{
+        color: var(--text);
+        font-weight: 850;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .weeklyRight{
+        color: rgba(155,176,209,.95);
+        font-weight: 850;
+        white-space: nowrap;
+        text-align:right;
+        font-size: 13px;
+      }
+
+      .yourRow{
+        border:1px solid rgba(46,229,157,.55);
+        box-shadow: 0 0 0 2px rgba(46,229,157,.12) inset;
+        background: rgba(46,229,157,.08);
+      }
+
+      .yourRowGrid{
+        display:grid;
+        grid-template-columns: 1fr auto;
+        gap:10px;
+        align-items:center;
+        width:100%;
+      }
+
+      .arrowCol{
+        color: rgba(46,229,157,.95);
+        font-weight: 950;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      #confettiCanvas{
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .animateBadge{ animation:none; }
+        .popIn{ animation:none; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container" id="app">
+      <!-- Top title (Momentum Dashboard) -->
+      <div class="header">
+        <div>
+          <div class="title">Momentum Dashboard</div>
+          <div id="subtitle" class="subtitle">Loading your personal view…</div>
+        </div>
+        <button onclick="load()">Refresh</button>
+      </div>
+
+      <div class="grid-top">
+        <!-- Weekly Completions -->
+        <div class="card">
+          <h3>Weekly Completions</h3>
+          <div class="cardBody">
+            <div class="completionsRow">
+              <div class="bigLabel">Completions:</div>
+              <div class="big" id="weekCompletions">—</div>
+            </div>
+
+            <div class="line" id="qualifiedText">Qualified for $— Additional Earnings</div>
+            <div class="bar"><div id="payBar"></div></div>
+            <p class="note" id="payNextText"></p>
+          </div>
+        </div>
+
+        <!-- Consistency Multiplier -->
+        <div class="card">
+          <h3>Consistency Multiplier</h3>
+          <div class="cardBody">
+            <div class="badgeWrap">
+              <div class="shieldBadge" id="multBadgeWrap" aria-hidden="true">
+                <div class="shieldRim"></div>
+                <div class="shieldInner"></div>
+                <div class="shieldContent">
+                  <div class="badgeMain" id="multBadgeMain">—</div>
+                  <div class="badgeSub" id="multBadgeSub">—</div>
+                </div>
+              </div>
+            </div>
+
+            <p class="avgLine" id="avgText">4-week average: <b>—</b> completions</p>
+            <p class="note" id="multNextText"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Earnings -->
+      <div class="earnings">
+        <p class="val" id="earningsText">You are earning an incremental $— this week!</p>
+      </div>
+
+      <!-- Footnote -->
+      <div class="footnoteBar small">
+        Eligibility for incentive payouts is based on completed tasks that meet all established quality and technical specifications. Participation in this incentive program does not modify the independent contractor status or any other terms of your existing Service Agreement. Incentive payments for each Monday-Sunday week will be paid in the next pay cycle after the end of that week.
+      </div>
+
+      <!-- Progress Leaderboard (same “layer” as Momentum Dashboard header style) -->
+      <div class="header" style="margin-top:18px;">
+        <div class="title">Progress Leaderboard</div>
+        <div></div>
+      </div>
+
+      <!-- Leaderboard card (stacked sections) -->
+      <div class="card leaderboardWrap">
+        <!-- Highest production trainers -->
+        <div class="leaderSection" style="margin-top:0;">
+          <h3 class="goldHeading" style="text-align:center;">HIGHEST PRODUCTION TRAINERS</h3>
+          <div class="top10Grid">
+            <div id="topLeftList"></div>
+            <div id="topRightList"></div>
+          </div>
+        </div>
+
+        <!-- Your position -->
+        <div class="leaderSection" id="yourPositionSection">
+          <h3 class="goldHeading" style="text-align:center;">YOUR POSITION</h3>
+          <div id="yourPositionList"></div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="confettiCanvas"></canvas>
+
+    <script>
+      function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+      function showNoAccess() {
+        document.body.innerHTML = `
+          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#070c16;color:#eaf0ff;font-family:system-ui;">
+            <div style="padding:28px 32px;border-radius:16px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);text-align:center;max-width:420px;">
+              <h2 style="margin:0 0 10px 0;">No access</h2>
+              <p style="margin:0;color:#9bb0d1;">This dashboard is only available to authorized trainers.</p>
+            </div>
+          </div>
+        `;
+      }
+
+      function setBadgeAnimation() {
+        const wrap = document.getElementById('multBadgeWrap');
+        wrap.classList.remove('animateBadge');
+        void wrap.offsetWidth;
+        wrap.classList.add('animateBadge');
+      }
+
+      function confettiBurst(durationMs = 900) {
+        const canvas = document.getElementById('confettiCanvas');
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+
+        const resize = () => {
+          canvas.width = Math.floor(window.innerWidth * dpr);
+          canvas.height = Math.floor(window.innerHeight * dpr);
+          canvas.style.width = window.innerWidth + 'px';
+          canvas.style.height = window.innerHeight + 'px';
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        };
+        resize();
+
+        const colors = ['#ffd978', '#ffbf2f', '#7aa7ff', '#2ee59d', '#eaf0ff'];
+        const particles = [];
+        const count = 140;
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight * 0.22;
+
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 6 + Math.random() * 6;
+          particles.push({
+            x: centerX, y: centerY,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - (4 + Math.random() * 3),
+            g: 0.18 + Math.random() * 0.08,
+            r: 2 + Math.random() * 4,
+            rot: Math.random() * Math.PI,
+            vr: (Math.random() - 0.5) * 0.25,
+            color: colors[(Math.random() * colors.length) | 0]
+          });
+        }
+
+        const start = performance.now();
+        function frame(t) {
+          const elapsed = t - start;
+          ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+          const alpha = Math.max(0, 1 - (elapsed / (durationMs + 250)));
+          ctx.globalAlpha = alpha;
+
+          for (const p of particles) {
+            p.vy += p.g;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.rot += p.vr;
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rot);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.r, -p.r, p.r * 2.2, p.r * 1.2);
+            ctx.restore();
+          }
+
+          ctx.globalAlpha = 1;
+          if (elapsed < durationMs) requestAnimationFrame(frame);
+          else ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        }
+
+        window.addEventListener('resize', resize, { once: true });
+        requestAnimationFrame(frame);
+      }
+
+      function getWeekKey(rangeText){
+        return String(rangeText || '').replace(/\s+/g,'');
+      }
+      function storageKey(email, weekRangeText){
+        return `trainerDash:lastWeekCompletions:${email}:${getWeekKey(weekRangeText)}`;
+      }
+      function didWeeklyIncrease(email, weekRangeText, currentWeekly){
+        const key = storageKey(email, weekRangeText);
+        const prev = Number(localStorage.getItem(key));
+        const curr = Number(currentWeekly);
+        const increased = isFinite(prev) && isFinite(curr) && curr > prev;
+        localStorage.setItem(key, String(isFinite(curr) ? curr : 0));
+        return increased;
+      }
+
+      async function runAnimationsSequence(data){
+        const email = data.email || '';
+        const range = data.weekRangeText || '';
+        const weekly = Number(data.weekCompletions || 0);
+
+        const earningsEl = document.getElementById('earningsText');
+        earningsEl.classList.remove('popIn');
+
+        const increased = didWeeklyIncrease(email, range, weekly);
+        if (increased) {
+          confettiBurst(900);
+          await sleep(950);
+        } else {
+          await sleep(180);
+        }
+
+        setBadgeAnimation();
+        await sleep(650);
+
+        earningsEl.classList.add('popIn');
+      }
+
+      function escapeHtml(s){
+        return String(s || '')
+          .replace(/&/g,'&amp;')
+          .replace(/</g,'&lt;')
+          .replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;')
+          .replace(/'/g,'&#39;');
+      }
+
+      // If fewer than 10 agents, just render what exists; if empty, render nothing (no message).
+      function renderLeaderList(containerId, rows) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        if (!rows || !rows.length) { el.innerHTML = ''; return; }
+
+        el.innerHTML = rows.map(r => `
+          <div class="leaderRow ${r.isMe ? 'yourRow' : ''}">
+            <div class="leaderLeft">
+              <div class="rank">#${r.rank}</div>
+              <div class="name">${escapeHtml(r.name)}</div>
+            </div>
+            <div></div>
+            <div class="weeklyRight">Weekly Completions: ${r.weeklyCompletions}</div>
+          </div>
+        `).join('');
+      }
+
+      // Only show arrow text for "me"
+      function renderYourPosition(containerId, rows) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        if (!rows || !rows.length) { el.innerHTML = ''; return; }
+
+        el.innerHTML = rows.map(r => `
+          <div class="leaderRow ${r.isMe ? 'yourRow' : ''}">
+            <div class="${r.isMe ? 'yourRowGrid' : ''}" style="grid-column: 1 / -1;">
+              <div style="display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;">
+                <div class="rank">#${r.rank}</div>
+                <div class="name">${escapeHtml(r.name)}</div>
+                <div class="weeklyRight">Weekly Completions: ${r.weeklyCompletions}</div>
+              </div>
+              ${r.isMe ? `<div class="arrowCol">↑ Complete more tasks to move up!</div>` : ``}
+            </div>
+          </div>
+        `).join('');
+      }
+
+      function render(data) {
+        const email = data.email || '';
+        const range = data.weekRangeText || '';
+        document.getElementById('subtitle').textContent =
+          `Personal view: ${email} • Current week: ${range}`;
+
+        document.getElementById('weekCompletions').textContent = data.weekCompletions;
+        document.getElementById('qualifiedText').textContent = data.additionalPay.qualifiedText;
+
+        const pct = Math.max(0, Math.min(100, data.payProgress.barPct || 0));
+        document.getElementById('payBar').style.width = pct + '%';
+        document.getElementById('payNextText').textContent = data.payProgress.nextTierText;
+
+        const wrap = document.getElementById('multBadgeWrap');
+        const main = document.getElementById('multBadgeMain');
+        const sub = document.getElementById('multBadgeSub');
+
+        const badgeText = data.multiplier.badgeText || '';
+        if (badgeText.startsWith('1.25x')) {
+          wrap.classList.remove('noBadge');
+          main.textContent = '1.25x';
+          sub.textContent = 'Multiplier Active';
+        } else if (badgeText.startsWith('1.1x')) {
+          wrap.classList.remove('noBadge');
+          main.textContent = '1.1x';
+          sub.textContent = 'Multiplier Active';
+        } else {
+          wrap.classList.add('noBadge');
+          main.textContent = '1x';
+          sub.textContent = 'Multiplier Active';
+        }
+
+        const avgNum = (data.fourWeekAvg != null) ? data.fourWeekAvg : '—';
+        document.getElementById('avgText').innerHTML =
+          `4-week average: <b>${avgNum}</b> completion(s)`;
+
+        document.getElementById('multNextText').textContent = data.multProgress.nextTierText;
+        document.getElementById('earningsText').textContent = data.earnings.text;
+
+        const lb = data.leaderboard || {};
+        renderLeaderList('topLeftList', lb.topLeft || []);
+        renderLeaderList('topRightList', lb.topRight || []);
+
+        const inTop10 = !!lb.viewerInTop10;
+        const yourSection = document.getElementById('yourPositionSection');
+        if (yourSection) yourSection.style.display = inTop10 ? 'none' : '';
+
+        if (!inTop10) {
+          renderYourPosition('yourPositionList', lb.yourRows || []);
+        } else {
+          const yp = document.getElementById('yourPositionList');
+          if (yp) yp.innerHTML = '';
+        }
+      }
+
+      function load() {
+        google.script.run
+          .withSuccessHandler(async function (data) {
+            if (data.noAccess) {
+              showNoAccess();
+              return;
+            }
+            render(data);
+            await runAnimationsSequence(data);
+          })
+          .withFailureHandler(function (err) {
+            alert(err.message || err);
+          })
+          .getDashboardData();
+      }
+
+      load();
+    </script>
+  </body>
+</html>
