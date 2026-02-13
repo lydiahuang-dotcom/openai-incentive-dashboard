@@ -1,5 +1,5 @@
 /** CONFIG **/
-const SHEET_NAME = 'Gold_Testing';
+const SHEET_NAME = 'Gold';
 const TZ = 'America/New_York';
 
 // Column indices (1-based)
@@ -9,6 +9,66 @@ const COL_STATUS    = 9; // I
 const COL_COMPLET   = 11; // K
 const ALLOWED_STATUSES = ['Task Submitted'];
 
+// ——— Competition parameters (adjust these when rules change) ———
+/** First date of the first competition period (midnight in TZ). Format: year, month-1, day */
+const COMPETITION_START_DATE = new Date(2026, 0, 31);  // 1/31 → period 0: 1/31–2/8, period 1: 2/9–2/17, …  
+/** Length of one period in days (e.g. 9 = 9-day window; on day 10 a new period starts). */
+const PERIOD_DAYS = 9;
+/** Number of periods used for consistency multiplier (trailing + current). */
+const MULTIPLIER_NUM_PERIODS = 4;
+
+/**
+ * Additional pay tiers: completions in current period → dollar amount.
+ * Sorted ascending by completions; first matching tier wins.
+ * Example: 20 → $50, 40 → $70, 60 → $80
+ */
+const PAY_THRESHOLDS = [
+  { completions: 20, amount: 50 },
+  { completions: 40, amount: 70 },
+  { completions: 60, amount: 80 }
+];
+
+/**
+ * Multiplier tiers: (trailing 3 + current) period average → multiplier value.
+ * Sorted ascending by average; first matching tier wins.
+ * Example: 20 → 1, 40 → 1.1, 60 → 1.25
+ */
+const MULTIPLIER_THRESHOLDS = [
+  { avgMin: 20, value: 1, badgeLabel: '1x Multiplier Active' },
+  { avgMin: 40, value: 1.1, badgeLabel: '1.1x Multiplier Active' },
+  { avgMin: 60, value: 1.25, badgeLabel: '1.25x Multiplier Active' }
+];
+
+// ——— Pilot launch: only these emails can access the dashboard. Share Gold sheet with them (Viewer). Deploy "Execute as: User accessing the web app". ———
+const PILOT_ACCESS_EMAILS = [
+  'lydia.huang@invisible.email',
+  'michael.hernandez@invisible.email',
+  'rana.traboulsi@invisible.email',
+  'adrien.damseaux@invisible.email',
+  'ioana.maier@invisible.email',
+  'shihab.uddin@invisible.email',
+  'sylwia.wlodyga@invisible.email',
+  'taeheetay.jin@invisible.email',
+  'aida.durakovic@invisible.email',
+  'kristen.sonntag@invisible.email',
+  'philip.gordon@invisible.email',
+  'sharon.mcallister@invisible.email',
+  'krzysztof.doda@invisible.email',
+  'ha.anh@invisible.email',
+  'anna.novoseltseva@invisible.email',
+  'mark.weaver@invisible.email',
+  'andrew.vi@invisible.email',
+  'kubra.koc@invisible.email'
+];
+
+/** Normalize email for comparison: strip "Name <email>" to just the address, trim, lowercase. */
+function normalizeEmail_(str) {
+  const s = String(str || '').trim();
+  const match = s.match(/\<([^\>]+)\>/);
+  const emailOnly = match ? match[1].trim() : s;
+  return emailOnly.toLowerCase();
+}
+
 /** Web app entry **/
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -16,40 +76,55 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
-/** Main data endpoint for the UI **/
+/** Main data endpoint. Uses Session.getActiveUser() — deploy "Execute as: User accessing the web app" and share Gold sheet with pilot users. */
 function getDashboardData() {
-  const email = (Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-  if (!email) {
-    throw new Error(
-      'Unable to determine your email. This dashboard requires Google Workspace sign-in and correct web app deployment settings.'
-    );
-  }
+  const raw = Session.getActiveUser().getEmail();
+  const email = raw ? normalizeEmail_(raw) : '';
+  if (!email) return { noAccess: true };
+
+  const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
+  if (!pilotAllowed.includes(email)) return { noAccess: true };
+
+  return getDashboardDataForEmail_(email);
+}
+
+/** Shared logic: load sheet and build response for a validated pilot email. */
+function getDashboardDataForEmail_(email) {
+  const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
 
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) throw new Error(`Sheet "${SHEET_NAME}" not found`);
 
   const now = new Date();
-  const { weekStart, weekEnd } = getWeekBounds_(now, TZ);
-  const weekRangeText =
-    `${Utilities.formatDate(weekStart, TZ, 'M/d/yyyy')} - ${Utilities.formatDate(weekEnd, TZ, 'M/d/yyyy')}`;
+  const bounds = getPeriodBounds_(now, TZ);
+  const {
+    periodStartStr,
+    periodEndStr,
+    multiPeriodStartStr,
+    multiPeriodEndStr,
+    periodStart,
+    periodEnd
+  } = bounds;
+  const periodRangeText =
+    `${Utilities.formatDate(periodStart, TZ, 'M/d/yyyy')} - ${Utilities.formatDate(periodEnd, TZ, 'M/d/yyyy')}`;
 
   const lastRow = sh.getLastRow();
   if (lastRow < 2) {
-    // No rows; treat as no access (or change if you prefer)
     return { noAccess: true };
   }
 
-  // Access control: viewer email must exist in COL_EMAIL
-  const emailValues = sh
-    .getRange(2, COL_EMAIL, lastRow - 1, 1)
-    .getValues()
-    .flat()
-    .map(e => String(e || '').trim().toLowerCase());
-
-  if (!emailValues.includes(email)) {
-    return { noAccess: true };
-  }
+  // ——— Full launch: access = anyone whose email appears in the sheet (uncomment below and remove PILOT block above) ———
+  // // Access control: viewer email must exist in COL_EMAIL
+  // const emailValues = sh
+  //   .getRange(2, COL_EMAIL, lastRow - 1, 1)
+  //   .getValues()
+  //   .flat()
+  //   .map(e => String(e || '').trim().toLowerCase());
+  // if (!emailValues.includes(email)) {
+  //   return { noAccess: true };
+  // }
+  // // When uncommenting above, change "const allAccessEmails = pilotAllowed" below to: const allAccessEmails = [...new Set(emailValues)];
 
   // Read columns once
   const numRows = lastRow - 1;
@@ -57,15 +132,12 @@ function getDashboardData() {
     .getRange(2, 1, numRows, Math.max(COL_COMPLET, COL_STATUS))
     .getValues();
 
-  // Past 4 FULL weeks (including current week)
-  const fourWeekStart = addDays_(weekStart, -21);
-  const fourWeekEnd   = weekEnd; 
+  const numPeriods = MULTIPLIER_NUM_PERIODS;
+  let periodCompletions = 0;
+  let multiPeriodTotalCompletions = 0;
 
-  let weekCompletions = 0;
-  let fourWeekTotalCompletions = 0;
-
-  // Leaderboard totals for ALL trainers for current week
-  const weeklyTotalsByEmail = Object.create(null);
+  // Leaderboard totals for ALL trainers for current period
+  const periodTotalsByEmail = Object.create(null);
 
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
@@ -84,37 +156,45 @@ function getDashboardData() {
     const c = Number(row[COL_COMPLET - 1] || 0);
     if (!isFinite(c)) continue;
 
-    // Current week totals (all trainers)
-    if (ts >= weekStart && ts <= weekEnd) {
-      weeklyTotalsByEmail[rowEmail] = (weeklyTotalsByEmail[rowEmail] || 0) + c;
+    // Compare by calendar day in TZ so sheet timestamps match the intended period (no server-TZ mix)
+    const inCurrentPeriod = isDateInRange_(ts, periodStartStr, periodEndStr, TZ);
+    const inMultiPeriod = isDateInRange_(ts, multiPeriodStartStr, multiPeriodEndStr, TZ);
+
+    if (inCurrentPeriod) {
+      periodTotalsByEmail[rowEmail] = (periodTotalsByEmail[rowEmail] || 0) + c;
     }
 
-    // Viewer-specific totals
     if (rowEmail === email) {
-      if (ts >= weekStart && ts <= weekEnd) weekCompletions += c;
-      if (ts >= fourWeekStart && ts <= fourWeekEnd) fourWeekTotalCompletions += c;
+      if (inCurrentPeriod) periodCompletions += c;
+      if (inMultiPeriod) multiPeriodTotalCompletions += c;
     }
   }
 
-  const fourWeekAvg = fourWeekTotalCompletions / 4;
+  const multiPeriodAvg = multiPeriodTotalCompletions / numPeriods;
 
-  const allWeeklyRows = Object.keys(weeklyTotalsByEmail).map(e => ({
+  // Leaderboard = everyone in Gold (sheet) with current-period completions + access-list agents with no data (shown as "—" at end)
+  const fromSheet = Object.keys(periodTotalsByEmail).map(e => ({
     email: e,
-    weeklyCompletions: weeklyTotalsByEmail[e] || 0
+    weeklyCompletions: periodTotalsByEmail[e] || 0
   }));
+  const allAccessEmails = pilotAllowed;
+  const accessOnlyNoData = allAccessEmails
+    .filter(e => !(e in periodTotalsByEmail))
+    .map(e => ({ email: e, weeklyCompletions: 0 }));
+  const allPeriodRows = fromSheet.concat(accessOnlyNoData);
 
-  const leaderboard = buildLeaderboard_(allWeeklyRows, email);
+  const leaderboard = buildLeaderboard_(allPeriodRows, email);
 
-  return buildResponse_(email, weekCompletions, fourWeekAvg, weekRangeText, leaderboard);
+  return buildResponse_(email, periodCompletions, multiPeriodAvg, periodRangeText, leaderboard);
 }
 
-/** Build all UI-facing values (tiers, progress, text) */
-function buildResponse_(email, weekCompletions, fourWeekAvg, weekRangeText, leaderboard) {
-  const pay = additionalPay_(weekCompletions);
-  const payProgress = progressToNextPayTier_(weekCompletions);
+/** Build all UI-facing values (tiers, progress, text). Keeps weekRangeText/weekCompletions/fourWeekAvg keys for front-end compatibility. */
+function buildResponse_(email, periodCompletions, multiPeriodAvg, periodRangeText, leaderboard) {
+  const pay = additionalPay_(periodCompletions);
+  const payProgress = progressToNextPayTier_(periodCompletions);
 
-  const mult = consistencyMultiplier_(fourWeekAvg);
-  const multProgress = progressToNextMultiplierTier_(fourWeekAvg);
+  const mult = consistencyMultiplier_(multiPeriodAvg);
+  const multProgress = progressToNextMultiplierTier_(multiPeriodAvg);
 
   let earnings = 0;
   if (pay.amount > 0) {
@@ -124,9 +204,9 @@ function buildResponse_(email, weekCompletions, fourWeekAvg, weekRangeText, lead
 
   return {
     email,
-    weekRangeText,
-    weekCompletions: Math.round(weekCompletions || 0),
-    fourWeekAvg: Math.floor(isFinite(fourWeekAvg) ? fourWeekAvg : 0),
+    weekRangeText: periodRangeText,
+    weekCompletions: Math.round(periodCompletions || 0),
+    fourWeekAvg: Math.floor(isFinite(multiPeriodAvg) ? multiPeriodAvg : 0),
 
     additionalPay: {
       amount: pay.amount,
@@ -149,69 +229,84 @@ function buildResponse_(email, weekCompletions, fourWeekAvg, weekRangeText, lead
   };
 }
 
-/** Tiers **/
-function additionalPay_(weekly) {
-  if (weekly >= 40) return { amount: 80, text: 'Qualified for $80 Additional Earnings' };
-  if (weekly >= 28) return { amount: 70, text: 'Qualified for $70 Additional Earnings' };
-  if (weekly >= 16) return { amount: 50, text: 'Qualified for $50 Additional Earnings' };
+/** Tiers (driven by PAY_THRESHOLDS and MULTIPLIER_THRESHOLDS config) **/
+function additionalPay_(completions) {
+  const sorted = PAY_THRESHOLDS.slice().sort((a, b) => b.completions - a.completions);
+  for (let i = 0; i < sorted.length; i++) {
+    if (completions >= sorted[i].completions) {
+      const amt = sorted[i].amount;
+      return { amount: amt, text: `Qualified for $${amt} Additional Earnings` };
+    }
+  }
   return { amount: 0, text: 'Qualified for $0 Additional Earning' };
 }
 
 function consistencyMultiplier_(avg) {
   const a = Number(avg);
   const safe = isFinite(a) ? a : 0;
-  if (safe >= 40) return { value: 1.25, badgeText: '1.25x Multiplier Active' };
-  if (safe >= 28) return { value: 1.10, badgeText: '1.1x Multiplier Active' };
+  const sorted = MULTIPLIER_THRESHOLDS.slice().sort((a, b) => b.avgMin - a.avgMin);
+  for (let i = 0; i < sorted.length; i++) {
+    if (safe >= sorted[i].avgMin) {
+      return { value: sorted[i].value, badgeText: sorted[i].badgeLabel };
+    }
+  }
   return { value: 0, badgeText: 'No badge available right now' };
 }
 
-function progressToNextPayTier_(weekly) {
-  if (weekly >= 40) {
+function progressToNextPayTier_(completions) {
+  const sorted = PAY_THRESHOLDS.slice().sort((a, b) => a.completions - b.completions);
+  const top = sorted[sorted.length - 1];
+  if (completions >= top.completions) {
     return { barPct: 100, nextTierText: 'Keep up the great work!' };
   }
 
-  let base = 0, next = 16;
-  if (weekly >= 16 && weekly < 28) { base = 16; next = 28; }
-  else if (weekly >= 28 && weekly < 40) { base = 28; next = 40; }
+  let base = 0, next = sorted[0].completions, nextAmount = sorted[0].amount;
+  for (let i = 0; i < sorted.length; i++) {
+    if (completions < sorted[i].completions) {
+      next = sorted[i].completions;
+      nextAmount = sorted[i].amount;
+      base = i > 0 ? sorted[i - 1].completions : 0;
+      break;
+    }
+  }
 
   const span = next - base;
-  const progressed = Math.max(0, weekly - base);
-  const pct = Math.min(100, Math.round((progressed / span) * 100));
-
-  const remaining = Math.max(0, next - weekly);
-  const nextPay = (next === 16) ? 50 : (next === 28) ? 70 : 80;
+  const progressed = span ? Math.max(0, completions - base) : 0;
+  const pct = span ? Math.min(100, Math.round((progressed / span) * 100)) : 0;
+  const remaining = Math.max(0, next - completions);
 
   return {
     barPct: pct,
-    nextTierText: `${remaining} Completions to $${nextPay} Additional Earnings`
+    nextTierText: `${remaining} Completions to $${nextAmount} Additional Earnings`
   };
 }
 
 function progressToNextMultiplierTier_(avg) {
   const a = Number(avg);
   const safeAvg = isFinite(a) ? a : 0;
-
-  // Displayed 4-week average integer (always round down)
   const avgInt = Math.floor(safeAvg);
 
-  // Pick the goal tier based on the REAL average (not the floored display)
-  // This avoids showing "0 to 1.1x" when the true avg is 28.2, etc.
-  if (safeAvg >= 40) {
+  const sorted = MULTIPLIER_THRESHOLDS.slice().sort((a, b) => b.avgMin - a.avgMin);
+  if (safeAvg >= sorted[0].avgMin) {
     return {
       avgInt,
-      nextTierText: '0 completion till 1.25x multiplier active'
+      nextTierText: `0 completion till ${sorted[0].badgeLabel.toLowerCase()}`
     };
   }
 
-  const goal = (safeAvg >= 28) ? 40 : 28;
-  const label = (goal === 40) ? '1.25x' : '1.1x';
+  let goal = sorted[0].avgMin, label = sorted[0].badgeLabel.toLowerCase();
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (safeAvg < sorted[i].avgMin) {
+      goal = sorted[i].avgMin;
+      label = sorted[i].badgeLabel.toLowerCase();
+      break;
+    }
+  }
 
-  // Remaining is derived from the displayed integer so they always add up
   const remaining = Math.max(0, goal - avgInt);
-
   return {
     avgInt,
-    nextTierText: `${remaining} completion(s) till ${label} multiplier active`
+    nextTierText: `${remaining} completion(s) till ${label}`
   };
 }
 
@@ -219,6 +314,7 @@ function progressToNextMultiplierTier_(avg) {
 /** Leaderboard (shared ranks / competition ranking) **/
 /** Leaderboard (shared ranks / competition ranking) **/
 function buildLeaderboard_(rows, viewerEmail) {
+  // Sort by completions desc so agents with 0 are last; tie-break by email
   const sorted = rows
     .slice()
     .sort((a, b) => (b.weeklyCompletions - a.weeklyCompletions) || a.email.localeCompare(b.email));
@@ -294,25 +390,52 @@ function cap_(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 }
 
-/** Week bounds: Monday 00:00:00 to Sunday 23:59:59 in TZ */
-function getWeekBounds_(date, tz) {
-  const y = Number(Utilities.formatDate(date, tz, 'yyyy'));
-  const m = Number(Utilities.formatDate(date, tz, 'MM')) - 1;
-  const d = Number(Utilities.formatDate(date, tz, 'dd'));
+/** Calendar day of date in TZ as "yyyy-MM-dd" for consistent comparison. */
+function toDateStrInTz_(date, tz) {
+  return Utilities.formatDate(date, tz, 'yyyy-MM-dd');
+}
 
-  const local = new Date(y, m, d, 12, 0, 0);
-  const day = local.getDay(); // 0 Sun..6 Sat
-  const mondayOffset = (day + 6) % 7;
+/**
+ * Period bounds from competition start: each period is PERIOD_DAYS long;
+ * on day (PERIOD_DAYS+1) a new period starts.
+ * Uses noon when adding days so the calendar day is correct in TZ regardless of server.
+ */
+function getPeriodBounds_(date, tz) {
+  const startY = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'yyyy'));
+  const startM = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'MM')) - 1;
+  const startD = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'dd'));
+  const refY = Number(Utilities.formatDate(date, tz, 'yyyy'));
+  const refM = Number(Utilities.formatDate(date, tz, 'MM')) - 1;
+  const refD = Number(Utilities.formatDate(date, tz, 'dd'));
 
-  const monday = new Date(local);
-  monday.setDate(local.getDate() - mondayOffset);
-  monday.setHours(0, 0, 0, 0);
+  const startAtNoon = new Date(startY, startM, startD, 12, 0, 0, 0);
+  const refAtNoon = new Date(refY, refM, refD, 12, 0, 0, 0);
+  const daysSinceStart = Math.floor((refAtNoon - startAtNoon) / (24 * 60 * 60 * 1000));
+  const periodIndex = Math.max(0, Math.floor(daysSinceStart / PERIOD_DAYS));
 
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
+  const periodStartDate = addDays_(new Date(startAtNoon.getTime()), periodIndex * PERIOD_DAYS);
+  const periodEndDate = addDays_(new Date(startAtNoon.getTime()), periodIndex * PERIOD_DAYS + (PERIOD_DAYS - 1));
 
-  return { weekStart: monday, weekEnd: sunday };
+  const periodStartStr = toDateStrInTz_(periodStartDate, tz);
+  const periodEndStr = toDateStrInTz_(periodEndDate, tz);
+
+  const multiStartDate = addDays_(new Date(startAtNoon.getTime()), (periodIndex - (MULTIPLIER_NUM_PERIODS - 1)) * PERIOD_DAYS);
+  const multiPeriodStartStr = toDateStrInTz_(multiStartDate, tz);
+
+  return {
+    periodStartStr,
+    periodEndStr,
+    multiPeriodStartStr,
+    multiPeriodEndStr: periodEndStr,
+    periodStart: periodStartDate,
+    periodEnd: periodEndDate
+  };
+}
+
+/** True if the calendar day of ts in tz is between startStr and endStr (inclusive). */
+function isDateInRange_(ts, startStr, endStr, tz) {
+  const dayStr = toDateStrInTz_(ts, tz);
+  return dayStr >= startStr && dayStr <= endStr;
 }
 
 function addDays_(dt, days) {

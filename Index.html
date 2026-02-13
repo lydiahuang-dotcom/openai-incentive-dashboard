@@ -3,6 +3,7 @@
   <head>
     <base target="_top" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
       :root{
         --bg:#0b1220;
@@ -116,6 +117,7 @@
         white-space:nowrap;
       }
       button:hover{ background: rgba(255,255,255,.10); }
+      button:disabled{ opacity:.6; cursor:not-allowed; }
 
       .earnings{
         margin-top:14px;
@@ -353,7 +355,7 @@
           <div class="title">Momentum Dashboard</div>
           <div id="subtitle" class="subtitle">Loading your personal view…</div>
         </div>
-        <button onclick="load()">Refresh</button>
+        <button id="refreshBtn" onclick="load()">Refresh</button>
       </div>
 
       <div class="grid-top">
@@ -395,12 +397,12 @@
 
       <!-- Earnings -->
       <div class="earnings">
-        <p class="val" id="earningsText">You are earning an incremental $— this week!</p>
+        <p class="val" id="earningsText">You are earning an incremental $— in this period!</p>
       </div>
 
       <!-- Footnote -->
       <div class="footnoteBar small">
-        Eligibility for incentive payouts is based on completed tasks that meet all established quality and technical specifications. Participation in this incentive program does not modify the independent contractor status or any other terms of your existing Service Agreement. Incentive payments for each Monday-Sunday week will be paid in the next pay cycle after the end of that week.
+        Eligibility for incentive payouts is based on completed tasks that meet all established quality and technical specifications. Participation in this incentive program does not modify the independent contractor status or any other terms of your existing Service Agreement. Incentive payments for each 9-day period will be paid in the next pay cycle after the end of that period.
       </div>
 
       <!-- Progress Leaderboard (same “layer” as Momentum Dashboard header style) -->
@@ -576,7 +578,7 @@
               <div class="name">${escapeHtml(r.name)}</div>
             </div>
             <div></div>
-            <div class="weeklyRight">Weekly Completions: ${r.weeklyCompletions}</div>
+            <div class="weeklyRight">Rolling 9-Day Completions: ${r.weeklyCompletions === 0 ? '—' : r.weeklyCompletions}</div>
           </div>
         `).join('');
       }
@@ -593,7 +595,7 @@
               <div style="display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;">
                 <div class="rank">#${r.rank}</div>
                 <div class="name">${escapeHtml(r.name)}</div>
-                <div class="weeklyRight">Weekly Completions: ${r.weeklyCompletions}</div>
+                <div class="weeklyRight">Rolling 9-Day Completions: ${r.weeklyCompletions === 0 ? '—' : r.weeklyCompletions}</div>
               </div>
               ${r.isMe ? `<div class="arrowCol">↑ Complete more tasks to move up!</div>` : ``}
             </div>
@@ -605,7 +607,7 @@
         const email = data.email || '';
         const range = data.weekRangeText || '';
         document.getElementById('subtitle').textContent =
-          `Personal view: ${email} • Current week: ${range}`;
+          `Personal view: ${email} • Current period: ${range}`;
 
         document.getElementById('weekCompletions').textContent = data.weekCompletions;
         document.getElementById('qualifiedText').textContent = data.additionalPay.qualifiedText;
@@ -635,7 +637,7 @@
 
         const avgNum = (data.fourWeekAvg != null) ? data.fourWeekAvg : '—';
         document.getElementById('avgText').innerHTML =
-          `4-week average: <b>${avgNum}</b> completion(s)`;
+          `4-period average: <b>${avgNum}</b> completion(s)`;
 
         document.getElementById('multNextText').textContent = data.multProgress.nextTierText;
         document.getElementById('earningsText').textContent = data.earnings.text;
@@ -656,20 +658,108 @@
         }
       }
 
-      function load() {
+      function getUrlParams() {
+        const params = {};
+        const q = (window.location.search || '').replace(/^\?/, '').split('&');
+        q.forEach(function(pair) {
+          const i = pair.indexOf('=');
+          if (i > 0) {
+            params[decodeURIComponent(pair.slice(0, i))] = decodeURIComponent((pair.slice(i + 1) || '').replace(/\+/g, ' '));
+          }
+        });
+        return params;
+      }
+
+      function showSignInScreen(clientId) {
+        document.body.innerHTML = `
+          <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#070c16;color:#eaf0ff;font-family:system-ui;">
+            <div style="padding:28px 32px;border-radius:16px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);text-align:center;max-width:420px;">
+              <h2 style="margin:0 0 16px 0;">Momentum Dashboard</h2>
+              <p style="margin:0 0 20px 0;color:#9bb0d1;">Sign in with your work Google account to continue.</p>
+              <div id="googleSignInBtn"></div>
+            </div>
+          </div>
+        `;
+        if (!clientId) {
+          document.getElementById('googleSignInBtn').innerHTML = '<p style="color:#9bb0d1;">Sign-in not configured. Contact your manager for access.</p>';
+          return;
+        }
+        var attempts = 0;
+        function tryRender() {
+          var el = document.getElementById('googleSignInBtn');
+          if (!el) return;
+          if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+            google.accounts.id.initialize({
+              client_id: clientId,
+              callback: function(res) {
+                if (res && res.credential) loadWithIdToken(res.credential);
+              }
+            });
+            google.accounts.id.renderButton(el, {
+              type: 'standard',
+              theme: 'filled_black',
+              size: 'large',
+              text: 'signin_with',
+              width: 280
+            });
+          } else if (attempts++ < 40) {
+            setTimeout(tryRender, 150);
+          } else {
+            el.innerHTML = '<p style="color:#9bb0d1;">Could not load Sign in. Check your connection and try again.</p>';
+          }
+        }
+        tryRender();
+      }
+
+      function loadWithIdToken(idToken) {
+        const btn = document.getElementById('refreshBtn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
         google.script.run
           .withSuccessHandler(async function (data) {
-            if (data.noAccess) {
-              showNoAccess();
-              return;
-            }
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+            if (data.noAccess) { showNoAccess(); return; }
             render(data);
             await runAnimationsSequence(data);
           })
           .withFailureHandler(function (err) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
             alert(err.message || err);
           })
-          .getDashboardData();
+          .getDashboardDataWithIdToken(idToken);
+      }
+
+      function load() {
+        const btn = document.getElementById('refreshBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+        }
+        const params = getUrlParams();
+        const userEmail = params.email || '';
+        const userToken = params.token || '';
+        if (userEmail && userToken) {
+          google.script.run
+            .withSuccessHandler(async function (data) {
+              if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+              if (data.noAccess) { showNoAccess(); return; }
+              render(data);
+              await runAnimationsSequence(data);
+            })
+            .withFailureHandler(function (err) {
+              if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; alert(err.message || err); }
+            })
+            .getDashboardData(userEmail, userToken);
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(function (clientId) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+            showSignInScreen(clientId || '');
+          })
+          .withFailureHandler(function (err) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; showSignInScreen(''); }
+          })
+          .getOAuthClientId();
       }
 
       load();
