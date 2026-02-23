@@ -8,7 +8,7 @@ const COL_TIMESTAMP = 6; // F
 const COL_EMAIL     = 7; // G
 const COL_STATUS    = 9; // I
 const COL_COMPLET   = 11; // K
-const COL_ERROR     = 34; // AI — error count for quality eligibility
+const COL_ERROR     = 35; // AI — error count for quality eligibility
 const ALLOWED_STATUSES = ['Task Submitted'];
 
 
@@ -77,11 +77,18 @@ function normalizeEmail_(str) {
 }
 
 
-/** Web app entry **/
-function doGet() {
- return HtmlService.createHtmlOutputFromFile('Index')
-   .setTitle('Trainer Dashboard')
-   .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+/** Web app entry. Use ?app=qa in the URL for the QA dashboard; otherwise Trainer dashboard. */
+function doGet(e) {
+  var params = (e && e.parameter) ? e.parameter : {};
+  var app = String(params.app || '').trim().toLowerCase();
+  if (app === 'qa') {
+    return HtmlService.createHtmlOutputFromFile('QA_Index')
+      .setTitle('QA Dashboard')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  }
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('Trainer Dashboard')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
 
@@ -344,7 +351,7 @@ function progressToNextMultiplierTier_(avg) {
 
 
 
-/** Leaderboard (shared ranks / competition ranking) **/
+
 /** Leaderboard (shared ranks / competition ranking) **/
 function buildLeaderboard_(rows, viewerEmail) {
  // Sort by completions desc so agents with 0 are last; tie-break by email
