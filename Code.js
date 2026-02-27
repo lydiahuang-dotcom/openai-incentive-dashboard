@@ -6,10 +6,17 @@ const TZ = 'America/New_York';
 // Column indices (1-based)
 const COL_TIMESTAMP = 6; // F
 const COL_EMAIL     = 7; // G
+const COL_H_TYPE    = 8; // H — type: RSHF, Evals, HLRM, categories (case-insensitive)
 const COL_STATUS    = 9; // I
-const COL_COMPLET   = 11; // K
+const COL_COMPLET   = 11; // K — value (multiplier for points)
 const COL_ERROR     = 35; // AI — error count for quality eligibility
-const ALLOWED_STATUSES = ['Task Submitted'];
+const ALLOWED_STATUSES = ['Task Submitted', 'Revised'];
+
+// Points per row = basePoints * value in col K (case-insensitive match on col H)
+const POINTS_RSHF = 75000;
+const POINTS_EVALS = 20000;
+const POINTS_HLRM = 50000;
+const POINTS_CATEGORIES = 30000;
 
 
 // ——— Competition parameters (adjust these when rules change) ———
@@ -22,26 +29,23 @@ const MULTIPLIER_NUM_PERIODS = 4;
 
 
 /**
-* Additional pay tiers: completions in current period → dollar amount.
-* Sorted ascending by completions; first matching tier wins.
-* Example: 20 → $50, 40 → $70, 60 → $80
+* Pay tiers: current 9-day period total points → dollar amount.
+* 0.9M → $50, 1.8M → $70, 2.7M → $80
 */
 const PAY_THRESHOLDS = [
- { completions: 20, amount: 50 },
- { completions: 40, amount: 70 },
- { completions: 60, amount: 80 }
+  { points: 900000, amount: 50 },
+  { points: 1800000, amount: 70 },
+  { points: 2700000, amount: 80 }
 ];
 
-
 /**
-* Multiplier tiers: (trailing 3 + current) period average → multiplier value.
-* Sorted ascending by average; first matching tier wins.
-* Example: 20 → 1, 40 → 1.1, 60 → 1.25
+* Multiplier tiers: (trailing 3 + current) period average points → multiplier value.
+* 0.9M → 1.0, 1.8M → 1.1, 2.7M → 1.25
 */
 const MULTIPLIER_THRESHOLDS = [
- { avgMin: 20, value: 1, badgeLabel: '1x Multiplier Active' },
- { avgMin: 40, value: 1.1, badgeLabel: '1.1x Multiplier Active' },
- { avgMin: 60, value: 1.25, badgeLabel: '1.25x Multiplier Active' }
+  { avgMin: 900000, value: 1, badgeLabel: '1x Multiplier Active' },
+  { avgMin: 1800000, value: 1.1, badgeLabel: '1.1x Multiplier Active' },
+  { avgMin: 2700000, value: 1.25, badgeLabel: '1.25x Multiplier Active' }
 ];
 
 
@@ -79,8 +83,11 @@ function normalizeEmail_(str) {
 
 /** Web app entry. Use ?app=qa in the URL for the QA dashboard; otherwise Trainer dashboard. */
 function doGet(e) {
-  var params = (e && e.parameter) ? e.parameter : {};
-  var app = String(params.app || '').trim().toLowerCase();
+  e = e || {};
+  var params = e.parameter || {};
+  var app = params.app;
+  if (Array.isArray(app)) app = app[0];
+  app = String(app || '').trim().toLowerCase();
   if (app === 'qa') {
     return HtmlService.createHtmlOutputFromFile('QA_Index')
       .setTitle('QA Dashboard')
@@ -130,19 +137,18 @@ function getDashboardDataForEmail_(email) {
     return { noAccess: true };
   }
 
-  // Read columns once (include COL_ERROR for quality eligibility)
+  // Read columns once (include COL_H_TYPE and COL_ERROR)
   const numRows = lastRow - 1;
   const values = sh
-    .getRange(2, 1, numRows, Math.max(COL_COMPLET, COL_STATUS, COL_ERROR))
+    .getRange(2, 1, numRows, Math.max(COL_COMPLET, COL_STATUS, COL_ERROR, COL_H_TYPE))
     .getValues();
 
   const numPeriods = MULTIPLIER_NUM_PERIODS;
-  let periodCompletions = 0;
-  let multiPeriodTotalCompletions = 0;
-  let multiPeriodErrorCount = 0;
-
-  // Leaderboard totals for ALL trainers for current period
+  // Per-email valid pool: only tasks under the error ceiling count toward points and eligibility
+  const validPoolC = Object.create(null);
+  const validPoolE = Object.create(null);
   const periodTotalsByEmail = Object.create(null);
+  const multiPeriodPointsByEmail = Object.create(null);
 
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
@@ -153,42 +159,52 @@ function getDashboardDataForEmail_(email) {
     const ts = row[COL_TIMESTAMP - 1];
     if (!(ts instanceof Date)) continue;
 
-    if (ALLOWED_STATUSES && ALLOWED_STATUSES.length) {
-      const st = String(row[COL_STATUS - 1] || '').trim();
-      if (!ALLOWED_STATUSES.includes(st)) continue;
-    }
+    const st = String(row[COL_STATUS - 1] || '').trim();
+    if (!ALLOWED_STATUSES || !ALLOWED_STATUSES.length || !ALLOWED_STATUSES.includes(st)) continue;
 
-    const c = Number(row[COL_COMPLET - 1] || 0);
-    if (!isFinite(c)) continue;
+    const kVal = Number(row[COL_COMPLET - 1] || 0);
+    if (!isFinite(kVal)) continue;
+
+    const hRaw = String(row[COL_H_TYPE - 1] || '').trim().toLowerCase();
+    let basePoints = 0;
+    if (hRaw.indexOf('rshf') !== -1) basePoints = POINTS_RSHF;
+    else if (hRaw.indexOf('evals') !== -1) basePoints = POINTS_EVALS;
+    else if (hRaw.indexOf('hlrm') !== -1) basePoints = POINTS_HLRM;
+    else if (hRaw.indexOf('categories') !== -1) basePoints = POINTS_CATEGORIES;
+    if (basePoints === 0) continue;
+
+    const pts = basePoints * kVal;
+    const c = kVal;
+    const errVal = isFinite(Number(row[COL_ERROR - 1])) ? Number(row[COL_ERROR - 1]) : 0;
 
     const inCurrentPeriod = isDateInRange_(ts, periodStartStr, periodEndStr, TZ);
     const inMultiPeriod = isDateInRange_(ts, multiPeriodStartStr, multiPeriodEndStr, TZ);
 
-    if (inCurrentPeriod) {
-      periodTotalsByEmail[rowEmail] = (periodTotalsByEmail[rowEmail] || 0) + c;
-    }
+    if (!inMultiPeriod) continue;
 
-    if (rowEmail === email) {
-      if (inCurrentPeriod) periodCompletions += c;
-      if (inMultiPeriod) {
-        multiPeriodTotalCompletions += c;
-        const err = Number(row[COL_ERROR - 1] || 0);
-        if (isFinite(err)) multiPeriodErrorCount += err;
+    const curC = validPoolC[rowEmail] || 0;
+    const curE = validPoolE[rowEmail] || 0;
+    const newC = curC + c;
+    const newE = curE + errVal;
+    const underCeiling = (newC > 8 && newE <= 0.125 * newC) || (newC <= 8 && newE <= 1);
+
+    if (underCeiling) {
+      validPoolC[rowEmail] = newC;
+      validPoolE[rowEmail] = newE;
+      multiPeriodPointsByEmail[rowEmail] = (multiPeriodPointsByEmail[rowEmail] || 0) + pts;
+      if (inCurrentPeriod) {
+        periodTotalsByEmail[rowEmail] = (periodTotalsByEmail[rowEmail] || 0) + pts;
       }
     }
   }
 
-  // Payout eligibility: quality rule over past 3 periods + current
-  const qualityEligible = (function () {
-    if (multiPeriodTotalCompletions > 8) {
-      return multiPeriodErrorCount <= 0.125 * multiPeriodTotalCompletions;
-    }
-    return multiPeriodErrorCount <= 1;
-  })();
+  const periodPoints = periodTotalsByEmail[email] || 0;
+  const multiPeriodTotalPoints = multiPeriodPointsByEmail[email] || 0;
+  const multiPeriodAvg = multiPeriodTotalPoints / numPeriods;
+  const vC = validPoolC[email] || 0;
+  const vE = validPoolE[email] || 0;
+  const qualityEligible = (vC > 8 && vE <= 0.125 * vC) || (vC <= 8 && vE <= 1);
 
-  const multiPeriodAvg = multiPeriodTotalCompletions / numPeriods;
-
-  // Leaderboard = everyone in Gold (sheet) with current-period completions + access-list agents with no data
   const fromSheet = Object.keys(periodTotalsByEmail).map(e => ({
     email: e,
     weeklyCompletions: periodTotalsByEmail[e] || 0
@@ -201,151 +217,110 @@ function getDashboardDataForEmail_(email) {
 
   const leaderboard = buildLeaderboard_(allPeriodRows, email);
 
-  return buildResponse_(email, periodCompletions, multiPeriodAvg, periodRangeText, leaderboard, qualityEligible);
+  return buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, leaderboard, qualityEligible);
 }
 
 
-/** Build all UI-facing values (tiers, progress, text). Keeps weekRangeText/weekCompletions/fourWeekAvg keys for front-end compatibility. */
-function buildResponse_(email, periodCompletions, multiPeriodAvg, periodRangeText, leaderboard, qualityEligible) {
- const pay = additionalPay_(periodCompletions);
- const payProgress = progressToNextPayTier_(periodCompletions);
+/** Build all UI-facing values (tiers, progress, text). weekCompletions/fourWeekAvg hold points for front-end. */
+function buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, leaderboard, qualityEligible) {
+  const pay = additionalPay_(periodPoints);
+  const payProgress = progressToNextPayTier_(periodPoints);
+  const mult = consistencyMultiplier_(multiPeriodAvg);
+  const multProgress = progressToNextMultiplierTier_(multiPeriodAvg);
 
+  let earnings = 0;
+  if (pay.amount > 0) {
+    earnings = mult.value ? pay.amount * mult.value : pay.amount;
+  }
+  const earningsInt = Math.round(earnings);
+  const earningsText = (qualityEligible === true)
+    ? `You are earning an incremental $${earningsInt} this week!`
+    : 'You are not eligible for the additional earnings due to quality issues.';
 
- const mult = consistencyMultiplier_(multiPeriodAvg);
- const multProgress = progressToNextMultiplierTier_(multiPeriodAvg);
-
-
- let earnings = 0;
- if (pay.amount > 0) {
-   earnings = mult.value ? pay.amount * mult.value : pay.amount;
- }
- const earningsInt = Math.round(earnings);
-
- // Only show incremental message when explicitly eligible; otherwise always show ineligibility (handles undefined if old code calls without 6th arg)
- const earningsText = (qualityEligible === true)
-   ? `You are earning an incremental $${earningsInt} this week!`
-   : 'You are not eligible for the additional earnings due to quality issues.';
-
- return {
-   email,
-   weekRangeText: periodRangeText,
-   weekCompletions: Math.round(periodCompletions || 0),
-   fourWeekAvg: Math.floor(isFinite(multiPeriodAvg) ? multiPeriodAvg : 0),
-
-
-   additionalPay: {
-     amount: pay.amount,
-     qualifiedText: pay.text
-   },
-   payProgress,
-
-
-   multiplier: {
-     value: mult.value,
-     badgeText: mult.badgeText
-   },
-   multProgress,
-
-
-   earnings: {
-     amount: (qualityEligible === true) ? earningsInt : 0,
-     text: earningsText
-   },
-
-
-   leaderboard
- };
+  return {
+    email,
+    weekRangeText: periodRangeText,
+    weekCompletions: Math.round(periodPoints || 0),
+    fourWeekAvg: Math.floor(isFinite(multiPeriodAvg) ? multiPeriodAvg : 0),
+    additionalPay: { amount: pay.amount, qualifiedText: pay.text },
+    payProgress,
+    multiplier: { value: mult.value, badgeText: mult.badgeText },
+    multProgress,
+    earnings: { amount: (qualityEligible === true) ? earningsInt : 0, text: earningsText },
+    leaderboard
+  };
 }
 
 
-/** Tiers (driven by PAY_THRESHOLDS and MULTIPLIER_THRESHOLDS config) **/
-function additionalPay_(completions) {
- const sorted = PAY_THRESHOLDS.slice().sort((a, b) => b.completions - a.completions);
- for (let i = 0; i < sorted.length; i++) {
-   if (completions >= sorted[i].completions) {
-     const amt = sorted[i].amount;
-     return { amount: amt, text: `Qualified for $${amt} Additional Earnings` };
-   }
- }
- return { amount: 0, text: 'Qualified for $0 Additional Earning' };
+/** Tiers: points → amount (PAY_THRESHOLDS) **/
+function additionalPay_(points) {
+  const sorted = PAY_THRESHOLDS.slice().sort((a, b) => b.points - a.points);
+  for (let i = 0; i < sorted.length; i++) {
+    if (points >= sorted[i].points) {
+      return { amount: sorted[i].amount, text: `Qualified for $${sorted[i].amount} Additional Earnings` };
+    }
+  }
+  return { amount: 0, text: 'Qualified for $0 Additional Earning' };
 }
 
 
 function consistencyMultiplier_(avg) {
- const a = Number(avg);
- const safe = isFinite(a) ? a : 0;
- const sorted = MULTIPLIER_THRESHOLDS.slice().sort((a, b) => b.avgMin - a.avgMin);
- for (let i = 0; i < sorted.length; i++) {
-   if (safe >= sorted[i].avgMin) {
-     return { value: sorted[i].value, badgeText: sorted[i].badgeLabel };
-   }
- }
- return { value: 0, badgeText: 'No badge available right now' };
+  const a = Number(avg);
+  const safe = isFinite(a) ? a : 0;
+  const sorted = MULTIPLIER_THRESHOLDS.slice().sort((a, b) => b.avgMin - a.avgMin);
+  for (let i = 0; i < sorted.length; i++) {
+    if (safe >= sorted[i].avgMin) {
+      return { value: sorted[i].value, badgeText: sorted[i].badgeLabel };
+    }
+  }
+  return { value: 0, badgeText: 'No badge available right now' };
 }
 
 
-function progressToNextPayTier_(completions) {
- const sorted = PAY_THRESHOLDS.slice().sort((a, b) => a.completions - b.completions);
- const top = sorted[sorted.length - 1];
- if (completions >= top.completions) {
-   return { barPct: 100, nextTierText: 'Keep up the great work!' };
- }
-
-
- let base = 0, next = sorted[0].completions, nextAmount = sorted[0].amount;
- for (let i = 0; i < sorted.length; i++) {
-   if (completions < sorted[i].completions) {
-     next = sorted[i].completions;
-     nextAmount = sorted[i].amount;
-     base = i > 0 ? sorted[i - 1].completions : 0;
-     break;
-   }
- }
-
-
- const span = next - base;
- const progressed = span ? Math.max(0, completions - base) : 0;
- const pct = span ? Math.min(100, Math.round((progressed / span) * 100)) : 0;
- const remaining = Math.max(0, next - completions);
-
-
- return {
-   barPct: pct,
-   nextTierText: `${remaining} Completions to $${nextAmount} Additional Earnings`
- };
+function progressToNextPayTier_(points) {
+  const sorted = PAY_THRESHOLDS.slice().sort((a, b) => a.points - b.points);
+  const top = sorted[sorted.length - 1];
+  if (points >= top.points) {
+    return { barPct: 100, nextTierText: 'Keep up the great work!' };
+  }
+  let base = 0, next = sorted[0].points, nextAmount = sorted[0].amount;
+  for (let i = 0; i < sorted.length; i++) {
+    if (points < sorted[i].points) {
+      next = sorted[i].points;
+      nextAmount = sorted[i].amount;
+      base = i > 0 ? sorted[i - 1].points : 0;
+      break;
+    }
+  }
+  const span = next - base;
+  const progressed = span ? Math.max(0, points - base) : 0;
+  const pct = span ? Math.min(100, Math.round((progressed / span) * 100)) : 0;
+  const remaining = Math.max(0, next - points);
+  return {
+    barPct: pct,
+    nextTierText: `${remaining.toLocaleString()} points to $${nextAmount} Additional Earnings`
+  };
 }
 
 
 function progressToNextMultiplierTier_(avg) {
- const a = Number(avg);
- const safeAvg = isFinite(a) ? a : 0;
- const avgInt = Math.floor(safeAvg);
-
-
- const sorted = MULTIPLIER_THRESHOLDS.slice().sort((a, b) => b.avgMin - a.avgMin);
- if (safeAvg >= sorted[0].avgMin) {
-   return {
-     avgInt,
-     nextTierText: `0 completion till ${sorted[0].badgeLabel.toLowerCase()}`
-   };
- }
-
-
- let goal = sorted[0].avgMin, label = sorted[0].badgeLabel.toLowerCase();
- for (let i = sorted.length - 1; i >= 0; i--) {
-   if (safeAvg < sorted[i].avgMin) {
-     goal = sorted[i].avgMin;
-     label = sorted[i].badgeLabel.toLowerCase();
-     break;
-   }
- }
-
-
- const remaining = Math.max(0, goal - avgInt);
- return {
-   avgInt,
-   nextTierText: `${remaining} completion(s) till ${label}`
- };
+  const a = Number(avg);
+  const safeAvg = isFinite(a) ? a : 0;
+  const avgInt = Math.floor(safeAvg);
+  const sorted = MULTIPLIER_THRESHOLDS.slice().sort((a, b) => b.avgMin - a.avgMin);
+  if (safeAvg >= sorted[0].avgMin) {
+    return { avgInt, nextTierText: `0 points till ${sorted[0].badgeLabel.toLowerCase()}` };
+  }
+  let goal = sorted[0].avgMin, label = sorted[0].badgeLabel.toLowerCase();
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (safeAvg < sorted[i].avgMin) {
+      goal = sorted[i].avgMin;
+      label = sorted[i].badgeLabel.toLowerCase();
+      break;
+    }
+  }
+  const remaining = Math.max(0, goal - avgInt);
+  return { avgInt, nextTierText: `${remaining.toLocaleString()} points till ${label}` };
 }
 
 

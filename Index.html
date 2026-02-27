@@ -358,12 +358,12 @@
       </div>
 
       <div class="grid-top">
-        <!-- Weekly Completions -->
+        <!-- Current Period Points -->
         <div class="card">
-          <h3>Current Period Completions</h3>
+          <h3>Current Period Points</h3>
           <div class="cardBody">
             <div class="completionsRow">
-              <div class="bigLabel">Completions:</div>
+              <div class="bigLabel">Points:</div>
               <div class="big" id="weekCompletions">—</div>
             </div>
 
@@ -388,7 +388,7 @@
               </div>
             </div>
 
-            <p class="avgLine" id="avgText">4-week average: <b>—</b> completions</p>
+            <p class="avgLine" id="avgText">4-period average: <b>—</b> points</p>
             <p class="note" id="multNextText"></p>
           </div>
         </div>
@@ -577,7 +577,7 @@
               <div class="name">${escapeHtml(r.name)}</div>
             </div>
             <div></div>
-            <div class="weeklyRight">Rolling 9-Day Completions: ${r.weeklyCompletions === 0 ? '—' : r.weeklyCompletions}</div>
+            <div class="weeklyRight">Rolling 9-Day Points: ${r.weeklyCompletions === 0 ? '—' : Number(r.weeklyCompletions).toLocaleString()}</div>
           </div>
         `).join('');
       }
@@ -594,7 +594,7 @@
               <div style="display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;">
                 <div class="rank">#${r.rank}</div>
                 <div class="name">${escapeHtml(r.name)}</div>
-                <div class="weeklyRight">Rolling 9-Day Completions: ${r.weeklyCompletions === 0 ? '—' : r.weeklyCompletions}</div>
+                <div class="weeklyRight">Rolling 9-Day Points: ${r.weeklyCompletions === 0 ? '—' : Number(r.weeklyCompletions).toLocaleString()}</div>
               </div>
               ${r.isMe ? `<div class="arrowCol">↑ Complete more tasks to move up!</div>` : ``}
             </div>
@@ -608,7 +608,7 @@
         document.getElementById('subtitle').textContent =
           `Personal view: ${email} • Current period: ${range}`;
 
-        document.getElementById('weekCompletions').textContent = data.weekCompletions;
+        document.getElementById('weekCompletions').textContent = (data.weekCompletions != null) ? Number(data.weekCompletions).toLocaleString() : '—';
         document.getElementById('qualifiedText').textContent = data.additionalPay.qualifiedText;
 
         const pct = Math.max(0, Math.min(100, data.payProgress.barPct || 0));
@@ -634,9 +634,9 @@
           sub.textContent = 'Multiplier Active';
         }
 
-        const avgNum = (data.fourWeekAvg != null) ? data.fourWeekAvg : '—';
+        const avgNum = (data.fourWeekAvg != null && data.fourWeekAvg !== '') ? Number(data.fourWeekAvg).toLocaleString() : '—';
         document.getElementById('avgText').innerHTML =
-          `4-period average: <b>${avgNum}</b> completion(s)`;
+          `4-period average: <b>${avgNum}</b> points`;
 
         document.getElementById('multNextText').textContent = data.multProgress.nextTierText;
         document.getElementById('earningsText').textContent = data.earnings.text;
