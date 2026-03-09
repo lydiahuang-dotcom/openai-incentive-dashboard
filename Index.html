@@ -657,7 +657,23 @@
         }
       }
 
+      function showError(msg) {
+        var el = document.getElementById('app');
+        if (el) {
+          var errDiv = document.getElementById('trainerErrorBlock');
+          if (!errDiv) {
+            errDiv = document.createElement('div');
+            errDiv.id = 'trainerErrorBlock';
+            errDiv.style.cssText = 'margin:16px 0;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,100,100,.4);background:rgba(255,100,100,.1);color:#ffb0b0;font-size:13px;';
+            el.insertBefore(errDiv, el.firstChild);
+          }
+          errDiv.textContent = 'Error: ' + msg;
+          errDiv.style.display = 'block';
+        }
+      }
       function load() {
+        var errBlock = document.getElementById('trainerErrorBlock');
+        if (errBlock) errBlock.style.display = 'none';
         const btn = document.getElementById('refreshBtn');
         if (btn) {
           btn.disabled = true;
@@ -666,13 +682,17 @@
         google.script.run
           .withSuccessHandler(async function (data) {
             if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+            if (!data) { showError('No response'); alert('No response'); return; }
+            if (data.error) { showError(data.error); alert(data.error); return; }
             if (data.noAccess) { showNoAccess(); return; }
             render(data);
             await runAnimationsSequence(data);
           })
           .withFailureHandler(function (err) {
             if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
-            alert(err.message || err);
+            var msg = (err && (err.message || err.toString)) ? (err.message || err.toString()) : 'Request failed or timed out.';
+            showError(msg);
+            alert(msg);
           })
           .getDashboardData();
       }

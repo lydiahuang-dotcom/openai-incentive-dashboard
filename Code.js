@@ -1,22 +1,23 @@
 /** CONFIG **/
-const SHEET_NAME = 'Gold';
+const SHEET_NAME = '[Image] Prod';
 const TZ = 'America/New_York';
 
 
 // Column indices (1-based)
-const COL_TIMESTAMP = 6; // F
-const COL_EMAIL     = 7; // G
-const COL_H_TYPE    = 8; // H — type: RSHF, Evals, HLRM, categories (case-insensitive)
-const COL_STATUS    = 9; // I
-const COL_COMPLET   = 11; // K — value (multiplier for points)
-const COL_ERROR     = 35; // AI — error count for quality eligibility
+const COL_TIMESTAMP = 7; // G
+const COL_EMAIL     = 8; // H
+const COL_H_TYPE    = 9; // I — type: RSHF, Evals, HLRM, categories (case-insensitive)
+const COL_STATUS    = 10; // J
+const COL_COMPLET   = 12; // L — value (multiplier for points)
+const COL_ERROR     = 36; // AJ — error count for quality eligibility
 const ALLOWED_STATUSES = ['Task Submitted', 'Revised'];
 
-// Points per row = basePoints * value in col K (case-insensitive match on col H)
+// Points per row = basePoints * value in col L (case-insensitive match on col I)
 const POINTS_RSHF = 75000;
 const POINTS_EVALS = 20000;
 const POINTS_HLRM = 50000;
 const POINTS_CATEGORIES = 30000;
+const POINTS_MULTI_OUT = 35000;
 
 
 // ——— Competition parameters (adjust these when rules change) ———
@@ -53,22 +54,7 @@ const MULTIPLIER_THRESHOLDS = [
 const PILOT_ACCESS_EMAILS = [
  'lydia.huang@invisible.email',
  'michael.hernandez@invisible.email',
- 'rana.traboulsi@invisible.email',
- 'adrien.damseaux@invisible.email',
- 'ioana.maier@invisible.email',
- 'shihab.uddin@invisible.email',
- 'sylwia.wlodyga@invisible.email',
- 'taeheetay.jin@invisible.email',
- 'aida.durakovic@invisible.email',
- 'kristen.sonntag@invisible.email',
- 'philip.gordon@invisible.email',
- 'sharon.mcallister@invisible.email',
- 'krzysztof.doda@invisible.email',
- 'ha.anh@invisible.email',
- 'anna.novoseltseva@invisible.email',
- 'mark.weaver@invisible.email',
- 'andrew.vi@invisible.email',
- 'kubra.koc@invisible.email'
+ 'rana.traboulsi@invisible.email'
 ];
 
 
@@ -99,25 +85,31 @@ function doGet(e) {
 }
 
 
-/** Main data endpoint for the UI **/
+/** Main data endpoint for the UI. When deployed "Execute as: User", the viewer must have at least Viewer access to the spreadsheet. */
 function getDashboardData() {
-  const raw = Session.getActiveUser().getEmail();
-  const email = raw ? normalizeEmail_(raw) : '';
-  if (!email) return { noAccess: true };
+  var email = '';
+  try {
+    const raw = Session.getActiveUser().getEmail();
+    email = raw ? normalizeEmail_(raw) : '';
+    if (!email) { Logger.log('Trainer getDashboardData: no email'); return { noAccess: true }; }
 
-  const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
-  if (!pilotAllowed.includes(email)) return { noAccess: true };
-
-  return getDashboardDataForEmail_(email);
+    Logger.log('Trainer getDashboardData: loading for ' + email);
+    var result = getDashboardDataForEmail_(email);
+    Logger.log('Trainer getDashboardData: success for ' + email);
+    return result;
+  } catch (err) {
+    Logger.log('Trainer getDashboardData ERROR for ' + email + ': ' + (err && err.message ? err.message : err));
+    return { error: String(err && err.message ? err.message : err) };
+  }
 }
 
-/** Load sheet and build dashboard response for a validated pilot email. */
+/** Load sheet and build dashboard response. Access: pilot list OR any email appearing in col H. */
 function getDashboardDataForEmail_(email) {
   const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
 
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) throw new Error(`Sheet "${SHEET_NAME}" not found`);
+  if (!sh) return { error: 'Sheet "' + SHEET_NAME + '" not found' };
 
   const now = new Date();
   const bounds = getPeriodBounds_(now, TZ);
@@ -137,11 +129,18 @@ function getDashboardDataForEmail_(email) {
     return { noAccess: true };
   }
 
-  // Read columns once (include COL_H_TYPE and COL_ERROR)
-  const numRows = lastRow - 1;
-  const values = sh
-    .getRange(2, 1, numRows, Math.max(COL_COMPLET, COL_STATUS, COL_ERROR, COL_H_TYPE))
-    .getValues();
+  // Pull only the 6 columns we use: G(7), H(8), I(9), J(10), L(12), AJ(36) — two ranges
+  const valuesMain = sh.getRange(2, 7, lastRow, 12).getValues();   // cols G–L → indices 0–5
+  const valuesError = sh.getRange(2, 36, lastRow, 36).getValues(); // col AJ
+
+  // Emails that appear in col H (any row) — grant access to pilot list + anyone in sheet
+  const sheetEmails = new Set();
+  for (let i = 0; i < valuesMain.length; i++) {
+    const e = String(valuesMain[i][1] || '').trim().toLowerCase();
+    if (e) sheetEmails.add(e);
+  }
+  const allowed = pilotAllowed.includes(email) || sheetEmails.has(email);
+  if (!allowed) return { noAccess: true };
 
   const numPeriods = MULTIPLIER_NUM_PERIODS;
   // Per-email valid pool: only tasks under the error ceiling count toward points and eligibility
@@ -150,35 +149,37 @@ function getDashboardDataForEmail_(email) {
   const periodTotalsByEmail = Object.create(null);
   const multiPeriodPointsByEmail = Object.create(null);
 
-  for (let i = 0; i < values.length; i++) {
-    const row = values[i];
-
-    const rowEmail = String(row[COL_EMAIL - 1] || '').trim().toLowerCase();
+  for (let i = 0; i < valuesMain.length; i++) {
+    const main = valuesMain[i];
+    const rowEmail = String(main[1] || '').trim().toLowerCase(); // col H
     if (!rowEmail) continue;
 
-    const ts = row[COL_TIMESTAMP - 1];
+    const ts = main[0]; // col G
     if (!(ts instanceof Date)) continue;
 
-    const st = String(row[COL_STATUS - 1] || '').trim();
+    const st = String(main[3] || '').trim(); // col J
     if (!ALLOWED_STATUSES || !ALLOWED_STATUSES.length || !ALLOWED_STATUSES.includes(st)) continue;
 
-    const kVal = Number(row[COL_COMPLET - 1] || 0);
+    const kVal = Number(main[5] || 0); // col L
     if (!isFinite(kVal)) continue;
 
-    const hRaw = String(row[COL_H_TYPE - 1] || '').trim().toLowerCase();
+    const hRaw = String(main[2] || '').trim().toLowerCase(); // col I
     let basePoints = 0;
     if (hRaw.indexOf('rshf') !== -1) basePoints = POINTS_RSHF;
-    else if (hRaw.indexOf('evals') !== -1) basePoints = POINTS_EVALS;
+    else if (hRaw.indexOf('evals') !== -1 || hRaw.indexOf('ema') !== -1 || (hRaw.indexOf('hrm') !== -1 && hRaw.indexOf('hlrm') === -1)) basePoints = POINTS_EVALS;
     else if (hRaw.indexOf('hlrm') !== -1) basePoints = POINTS_HLRM;
     else if (hRaw.indexOf('categories') !== -1) basePoints = POINTS_CATEGORIES;
+    else if (hRaw.indexOf('multi-out') !== -1) basePoints = POINTS_MULTI_OUT;
     if (basePoints === 0) continue;
 
     const pts = basePoints * kVal;
     const c = kVal;
-    const errVal = isFinite(Number(row[COL_ERROR - 1])) ? Number(row[COL_ERROR - 1]) : 0;
+    const errVal = isFinite(Number(valuesError[i][0])) ? Number(valuesError[i][0]) : 0; // col AJ
 
-    const inCurrentPeriod = isDateInRange_(ts, periodStartStr, periodEndStr, TZ);
-    const inMultiPeriod = isDateInRange_(ts, multiPeriodStartStr, multiPeriodEndStr, TZ);
+    // Format date once per row, then reuse for both range checks (avoids 2x Utilities.formatDate)
+    const dayStr = toDateStrInTz_(ts, TZ);
+    const inCurrentPeriod = dayStr >= periodStartStr && dayStr <= periodEndStr;
+    const inMultiPeriod = dayStr >= multiPeriodStartStr && dayStr <= multiPeriodEndStr;
 
     if (!inMultiPeriod) continue;
 
@@ -209,7 +210,7 @@ function getDashboardDataForEmail_(email) {
     email: e,
     weeklyCompletions: periodTotalsByEmail[e] || 0
   }));
-  const allAccessEmails = pilotAllowed;
+  const allAccessEmails = [...new Set([...pilotAllowed, ...sheetEmails])];
   const accessOnlyNoData = allAccessEmails
     .filter(e => !(e in periodTotalsByEmail))
     .map(e => ({ email: e, weeklyCompletions: 0 }));
@@ -234,7 +235,7 @@ function buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, le
   }
   const earningsInt = Math.round(earnings);
   const earningsText = (qualityEligible === true)
-    ? `You are earning an incremental $${earningsInt} this week!`
+    ? `You are earning an incremental $${earningsInt} in this period!`
     : 'You are not eligible for the additional earnings due to quality issues.';
 
   return {
@@ -479,5 +480,6 @@ function addDays_(dt, days) {
  d.setDate(d.getDate() + days);
  return d;
 }
+
 
 

@@ -1,24 +1,26 @@
 /** QA Dashboard CONFIG — all names prefixed with QA_ to avoid clashes with Code.js in same project **/
-const QA_SHEET_NAME = 'Gold_Testing';
+const QA_SHEET_NAME = '[Image] Prod';
 const QA_TZ = 'America/New_York';
 
 // Column indices (1-based)
-const QA_COL_H_TYPE = 8;    // H — type: Eval, RSHF, hlrm, categories (case-insensitive)
-const QA_COL_M_FLAG = 13;    // M — if true, add points to agent in P
-const QA_COL_O_TS = 15;      // O — timestamp for M / row
-const QA_COL_P_EMAIL = 16;   // P — agent email (points when M true)
-const QA_COL_Q_FLAG = 17;    // Q — if true, add points to agent in T
-const QA_COL_S_TS = 19;      // S — timestamp for Q
-const QA_COL_T_EMAIL = 20;   // T — agent email (points when Q true)
-const QA_COL_AJ_FLAG = 36;   // AJ — if true (RSHF/hlrm only), add points to agent in AL
-const QA_COL_AK_TS = 37;     // AK — timestamp for AJ (fallback: O)
-const QA_COL_AL_EMAIL = 38;  // AL — agent email (points when AJ true)
+const QA_COL_I_TYPE = 9;    // I — type: Eval, RSHF, hlrm, categories (case-insensitive)
+const QA_COL_L_COMPLET = 12; // L — completion multiplier (all types: base points * Col L)
+const QA_COL_N_FLAG = 14;    // N — if true, add points to agent in P
+const QA_COL_P_TS = 16;      // P — timestamp for M / row
+const QA_COL_Q_EMAIL = 17;   // Q — agent email (points when M true)
+const QA_COL_R_FLAG = 18;    // R — if true, add points to agent in T
+const QA_COL_T_TS = 20;      // T — timestamp for Q
+const QA_COL_U_EMAIL = 21;   // U — agent email (points when Q true)
+const QA_COL_AK_FLAG = 37;   // AK — if true (RSHF/hlrm only), add points to agent in AL
+const QA_COL_AL_TS = 38;     // AL — timestamp for AJ (fallback: O)
+const QA_COL_AM_EMAIL = 39;  // AM — agent email (points when AJ true)
 
-// Points by type (Col H) and flag. All case-insensitive.
-// Eval: M true → 20k to P, Q true → 5k to T
-// RSHF: M true → 30k to P, Q true → 15k to T, AJ true → 10k to AL
-// hlrm: M true → 60k to P, Q true → 20k to T, AJ true → 60k to AL
-// categories: M true → 20k to P, Q true → 10k to T, AJ true → 5k to AL
+// Points by type (Col I) and flag. All case-insensitive. All points = base * Col L (completion).
+// Eval: N true → 20k*L to Q, R true → 5k*L to U
+// RSHF: N true → 30k*L to Q, R true → 15k*L to U, AK true → 10k*L to AM
+// hlrm: N true → 60k*L to Q, R true → 20k*L to U, AK true → 60k*L to AM
+// categories: N true → 20k*L to Q, R true → 10k*L to U, AK true → 5k*L to AM
+// out: R true → 20k*L to U; AK true → 15k*L to AM; N true & !AK → 30k*L to Q; N true & AK → 15k*L to Q
 const QA_POINTS_EVAL_M = 20000;
 const QA_POINTS_EVAL_Q = 5000;
 const QA_POINTS_RSHF_M = 30000;
@@ -30,6 +32,10 @@ const QA_POINTS_HLRM_AJ = 60000;
 const QA_POINTS_CATEGORIES_M = 20000;
 const QA_POINTS_CATEGORIES_Q = 10000;
 const QA_POINTS_CATEGORIES_AJ = 5000;
+const QA_POINTS_OUT_R = 20000;      // R true → to U
+const QA_POINTS_OUT_AK = 15000;    // AK true → to AM
+const QA_POINTS_OUT_N_ONLY = 30000;  // N true, AK false → to Q
+const QA_POINTS_OUT_N_AND_AK = 15000; // N true, AK true → to Q
 
 const QA_PERIOD_DAYS = 7;
 const QA_MULTIPLIER_NUM_PERIODS = 4;
@@ -70,23 +76,48 @@ function doGetQA() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
-/** Main data endpoint for QA dashboard. Access = only QA_PILOT_ACCESS_EMAILS (sheet P/T/AL does not grant access). */
+/** Main data endpoint for QA dashboard. Access = QA_PILOT_ACCESS_EMAILS OR anyone in col Q, U, or AM.
+ *  When deployed "Execute as: User", the viewer must have at least Viewer access to the spreadsheet, or the script cannot read it. */
 function getQADashboardData() {
-  const raw = Session.getActiveUser().getEmail();
-  const email = raw ? QA_normalizeEmail_(raw) : '';
-  if (!email) return { noAccess: true };
+  var email = '';
+  try {
+    const raw = Session.getActiveUser().getEmail();
+    email = raw ? QA_normalizeEmail_(raw) : '';
+    if (!email) { Logger.log('QA getDashboardData: no email'); return { noAccess: true }; }
 
-  const pilotSet = new Set(QA_PILOT_ACCESS_EMAILS.map(function(e) { return QA_normalizeEmail_(e); }).filter(Boolean));
-  if (!pilotSet.has(email)) return { noAccess: true };
+    const pilotSet = new Set(QA_PILOT_ACCESS_EMAILS.map(function(e) { return QA_normalizeEmail_(e); }).filter(Boolean));
 
-  const ss = SpreadsheetApp.getActive();
-  const sh = ss.getSheetByName(QA_SHEET_NAME);
-  if (!sh) throw new Error('Sheet "' + QA_SHEET_NAME + '" not found');
+    const ss = SpreadsheetApp.getActive();
+    const sh = ss.getSheetByName(QA_SHEET_NAME);
+    if (!sh) { Logger.log('QA getDashboardData: sheet not found ' + QA_SHEET_NAME); return { error: 'Sheet "' + QA_SHEET_NAME + '" not found' }; }
 
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) return { noAccess: true };
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) { Logger.log('QA getDashboardData: no data rows'); return { noAccess: true }; }
 
-  return QA_getDashboardDataForEmail_(email);
+    // Build set of emails that appear in col Q, U, or AM (any row) — grant access to pilot + anyone in sheet
+    const colQ = sh.getRange(2, QA_COL_Q_EMAIL, lastRow, QA_COL_Q_EMAIL).getValues();
+    const colU = sh.getRange(2, QA_COL_U_EMAIL, lastRow, QA_COL_U_EMAIL).getValues();
+    const colAM = sh.getRange(2, QA_COL_AM_EMAIL, lastRow, QA_COL_AM_EMAIL).getValues();
+    const sheetEmails = new Set();
+    for (var i = 0; i < colQ.length; i++) {
+      var e = QA_normalizeEmail_(colQ[i][0]);
+      if (e) sheetEmails.add(e);
+      e = QA_normalizeEmail_(colU[i][0]);
+      if (e) sheetEmails.add(e);
+      e = QA_normalizeEmail_(colAM[i][0]);
+      if (e) sheetEmails.add(e);
+    }
+    var allowed = pilotSet.has(email) || sheetEmails.has(email);
+    if (!allowed) { Logger.log('QA getDashboardData: access denied ' + email); return { noAccess: true }; }
+
+    Logger.log('QA getDashboardData: access ok, loading data for ' + email + ', lastRow=' + lastRow);
+    var result = QA_getDashboardDataForEmail_(email);
+    Logger.log('QA getDashboardData: success for ' + email);
+    return result;
+  } catch (err) {
+    Logger.log('QA getDashboardData ERROR for ' + email + ': ' + (err && err.message ? err.message : err));
+    return { error: String(err && err.message ? err.message : err) };
+  }
 }
 
 function QA_getDashboardDataForEmail_(email) {
@@ -109,117 +140,167 @@ function QA_getDashboardDataForEmail_(email) {
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { noAccess: true };
 
-  const numRows = lastRow - 1;
-  const maxCol = Math.max(QA_COL_O_TS, QA_COL_S_TS, QA_COL_AK_TS, QA_COL_P_EMAIL, QA_COL_T_EMAIL, QA_COL_AL_EMAIL);
-  const values = sh.getRange(2, 1, numRows, maxCol).getValues();
+  const maxCol = Math.max(QA_COL_P_TS, QA_COL_T_TS, QA_COL_AL_TS, QA_COL_Q_EMAIL, QA_COL_U_EMAIL, QA_COL_AM_EMAIL, QA_COL_L_COMPLET);
+  const values = sh.getRange(2, 1, lastRow, maxCol).getValues();
 
   let periodPoints = 0;
   let multiPeriodTotalPoints = 0;
+  function makeBreakdown() {
+    return { Eval_M: 0, Eval_Q: 0, RSHF_M: 0, RSHF_Q: 0, RSHF_AJ: 0, HLRM_M: 0, HLRM_Q: 0, HLRM_AJ: 0, Categories_M: 0, Categories_Q: 0, Categories_AJ: 0, Out_R: 0, Out_AK: 0, Out_N_only: 0, Out_N_and_AK: 0 };
+  }
+  var periodBreakdown = makeBreakdown();
+  var multiPeriodBreakdown = makeBreakdown();
 
   for (var i = 0; i < values.length; i++) {
     var row = values[i];
-    var typeRaw = String(row[QA_COL_H_TYPE - 1] || '').trim().toLowerCase();
-    if (!typeRaw) continue; // Col H empty → 0 points for this row
-    var isEval = typeRaw.indexOf('eval') !== -1;
+    var typeRaw = String(row[QA_COL_I_TYPE - 1] || '').trim().toLowerCase();
+    if (!typeRaw) continue; // Col I empty → 0 points for this row
+    var completion = isFinite(Number(row[QA_COL_L_COMPLET - 1])) ? Number(row[QA_COL_L_COMPLET - 1]) : 0;
+    var isEval = typeRaw.indexOf('eval') !== -1 || (typeRaw.indexOf('hrm') !== -1 && typeRaw.indexOf('hlrm') === -1);
     var isRSHF = typeRaw.indexOf('rshf') !== -1;
     var isHLRM = typeRaw.indexOf('hlrm') !== -1;
     var isCategories = typeRaw.indexOf('categories') !== -1;
+    var isOut = typeRaw.indexOf('multi-out') !== -1;
 
-    var mTrue = row[QA_COL_M_FLAG - 1] === true || String(row[QA_COL_M_FLAG - 1] || '').trim().toUpperCase() === 'TRUE';
-    var qTrue = row[QA_COL_Q_FLAG - 1] === true || String(row[QA_COL_Q_FLAG - 1] || '').trim().toUpperCase() === 'TRUE';
-    var ajTrue = row[QA_COL_AJ_FLAG - 1] === true || String(row[QA_COL_AJ_FLAG - 1] || '').trim().toUpperCase() === 'TRUE';
+    var mTrue = row[QA_COL_N_FLAG - 1] === true || String(row[QA_COL_N_FLAG - 1] || '').trim().toUpperCase() === 'TRUE';
+    var qTrue = row[QA_COL_R_FLAG - 1] === true || String(row[QA_COL_R_FLAG - 1] || '').trim().toUpperCase() === 'TRUE';
+    var ajTrue = row[QA_COL_AK_FLAG - 1] === true || String(row[QA_COL_AK_FLAG - 1] || '').trim().toUpperCase() === 'TRUE';
 
-    var tsO = row[QA_COL_O_TS - 1];
-    var tsS = row[QA_COL_S_TS - 1];
-    var tsAJ = row[QA_COL_AK_TS - 1] instanceof Date ? row[QA_COL_AK_TS - 1] : tsO;
+    var tsO = row[QA_COL_P_TS - 1];
+    var tsS = row[QA_COL_T_TS - 1];
+    var tsAJ = row[QA_COL_AL_TS - 1] instanceof Date ? row[QA_COL_AL_TS - 1] : tsO;
 
     var agentP, agentT, agentAL;
 
     if (isEval) {
       if (mTrue && tsO instanceof Date) {
-        agentP = QA_normalizeEmail_(row[QA_COL_P_EMAIL - 1]);
+        agentP = QA_normalizeEmail_(row[QA_COL_Q_EMAIL - 1]);
         if (agentP === email) {
-          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_EVAL_M;
-          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_EVAL_M;
+          var ptsM = QA_POINTS_EVAL_M * completion;
+          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsM; periodBreakdown.Eval_M += ptsM; }
+          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsM; multiPeriodBreakdown.Eval_M += ptsM; }
         }
       }
       if (qTrue && tsS instanceof Date) {
-        agentT = QA_normalizeEmail_(row[QA_COL_T_EMAIL - 1]);
+        agentT = QA_normalizeEmail_(row[QA_COL_U_EMAIL - 1]);
         if (agentT === email) {
-          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_EVAL_Q;
-          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_EVAL_Q;
+          var ptsQ = QA_POINTS_EVAL_Q * completion;
+          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsQ; periodBreakdown.Eval_Q += ptsQ; }
+          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsQ; multiPeriodBreakdown.Eval_Q += ptsQ; }
         }
       }
     }
 
     if (isRSHF) {
       if (mTrue && tsO instanceof Date) {
-        agentP = QA_normalizeEmail_(row[QA_COL_P_EMAIL - 1]);
+        agentP = QA_normalizeEmail_(row[QA_COL_Q_EMAIL - 1]);
         if (agentP === email) {
-          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_RSHF_M;
-          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_RSHF_M;
+          var ptsM = QA_POINTS_RSHF_M * completion;
+          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsM; periodBreakdown.RSHF_M += ptsM; }
+          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsM; multiPeriodBreakdown.RSHF_M += ptsM; }
         }
       }
       if (qTrue && tsS instanceof Date) {
-        agentT = QA_normalizeEmail_(row[QA_COL_T_EMAIL - 1]);
+        agentT = QA_normalizeEmail_(row[QA_COL_U_EMAIL - 1]);
         if (agentT === email) {
-          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_RSHF_Q;
-          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_RSHF_Q;
+          var ptsQ = QA_POINTS_RSHF_Q * completion;
+          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsQ; periodBreakdown.RSHF_Q += ptsQ; }
+          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsQ; multiPeriodBreakdown.RSHF_Q += ptsQ; }
         }
       }
       if (ajTrue && tsAJ instanceof Date) {
-        agentAL = QA_normalizeEmail_(row[QA_COL_AL_EMAIL - 1]);
+        agentAL = QA_normalizeEmail_(row[QA_COL_AM_EMAIL - 1]);
         if (agentAL === email) {
-          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_RSHF_AJ;
-          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_RSHF_AJ;
+          var ptsAJ = QA_POINTS_RSHF_AJ * completion;
+          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsAJ; periodBreakdown.RSHF_AJ += ptsAJ; }
+          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsAJ; multiPeriodBreakdown.RSHF_AJ += ptsAJ; }
         }
       }
     }
 
     if (isHLRM) {
       if (mTrue && tsO instanceof Date) {
-        agentP = QA_normalizeEmail_(row[QA_COL_P_EMAIL - 1]);
+        agentP = QA_normalizeEmail_(row[QA_COL_Q_EMAIL - 1]);
         if (agentP === email) {
-          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_HLRM_M;
-          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_HLRM_M;
+          var ptsM = QA_POINTS_HLRM_M * completion;
+          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsM; periodBreakdown.HLRM_M += ptsM; }
+          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsM; multiPeriodBreakdown.HLRM_M += ptsM; }
         }
       }
       if (qTrue && tsS instanceof Date) {
-        agentT = QA_normalizeEmail_(row[QA_COL_T_EMAIL - 1]);
+        agentT = QA_normalizeEmail_(row[QA_COL_U_EMAIL - 1]);
         if (agentT === email) {
-          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_HLRM_Q;
-          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_HLRM_Q;
+          var ptsQ = QA_POINTS_HLRM_Q * completion;
+          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsQ; periodBreakdown.HLRM_Q += ptsQ; }
+          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsQ; multiPeriodBreakdown.HLRM_Q += ptsQ; }
         }
       }
       if (ajTrue && tsAJ instanceof Date) {
-        agentAL = QA_normalizeEmail_(row[QA_COL_AL_EMAIL - 1]);
+        agentAL = QA_normalizeEmail_(row[QA_COL_AM_EMAIL - 1]);
         if (agentAL === email) {
-          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_HLRM_AJ;
-          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_HLRM_AJ;
+          var ptsAJ = QA_POINTS_HLRM_AJ * completion;
+          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsAJ; periodBreakdown.HLRM_AJ += ptsAJ; }
+          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsAJ; multiPeriodBreakdown.HLRM_AJ += ptsAJ; }
         }
       }
     }
 
     if (isCategories) {
       if (mTrue && tsO instanceof Date) {
-        agentP = QA_normalizeEmail_(row[QA_COL_P_EMAIL - 1]);
+        agentP = QA_normalizeEmail_(row[QA_COL_Q_EMAIL - 1]);
         if (agentP === email) {
-          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_CATEGORIES_M;
-          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_CATEGORIES_M;
+          var ptsM = QA_POINTS_CATEGORIES_M * completion;
+          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsM; periodBreakdown.Categories_M += ptsM; }
+          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsM; multiPeriodBreakdown.Categories_M += ptsM; }
         }
       }
       if (qTrue && tsS instanceof Date) {
-        agentT = QA_normalizeEmail_(row[QA_COL_T_EMAIL - 1]);
+        agentT = QA_normalizeEmail_(row[QA_COL_U_EMAIL - 1]);
         if (agentT === email) {
-          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_CATEGORIES_Q;
-          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_CATEGORIES_Q;
+          var ptsQ = QA_POINTS_CATEGORIES_Q * completion;
+          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsQ; periodBreakdown.Categories_Q += ptsQ; }
+          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsQ; multiPeriodBreakdown.Categories_Q += ptsQ; }
         }
       }
       if (ajTrue && tsAJ instanceof Date) {
-        agentAL = QA_normalizeEmail_(row[QA_COL_AL_EMAIL - 1]);
+        agentAL = QA_normalizeEmail_(row[QA_COL_AM_EMAIL - 1]);
         if (agentAL === email) {
-          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) periodPoints += QA_POINTS_CATEGORIES_AJ;
-          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) multiPeriodTotalPoints += QA_POINTS_CATEGORIES_AJ;
+          var ptsAJ = QA_POINTS_CATEGORIES_AJ * completion;
+          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsAJ; periodBreakdown.Categories_AJ += ptsAJ; }
+          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsAJ; multiPeriodBreakdown.Categories_AJ += ptsAJ; }
+        }
+      }
+    }
+
+    if (isOut) {
+      if (qTrue && tsS instanceof Date) {
+        agentT = QA_normalizeEmail_(row[QA_COL_U_EMAIL - 1]);
+        if (agentT === email) {
+          var ptsR = QA_POINTS_OUT_R * completion;
+          if (QA_isDateInRange_(tsS, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsR; periodBreakdown.Out_R += ptsR; }
+          if (QA_isDateInRange_(tsS, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsR; multiPeriodBreakdown.Out_R += ptsR; }
+        }
+      }
+      if (ajTrue && tsAJ instanceof Date) {
+        agentAL = QA_normalizeEmail_(row[QA_COL_AM_EMAIL - 1]);
+        if (agentAL === email) {
+          var ptsAK = QA_POINTS_OUT_AK * completion;
+          if (QA_isDateInRange_(tsAJ, periodStartStr, periodEndStr, QA_TZ)) { periodPoints += ptsAK; periodBreakdown.Out_AK += ptsAK; }
+          if (QA_isDateInRange_(tsAJ, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) { multiPeriodTotalPoints += ptsAK; multiPeriodBreakdown.Out_AK += ptsAK; }
+        }
+      }
+      if (mTrue && tsO instanceof Date) {
+        agentP = QA_normalizeEmail_(row[QA_COL_Q_EMAIL - 1]);
+        if (agentP === email) {
+          var ptsN = (ajTrue ? QA_POINTS_OUT_N_AND_AK : QA_POINTS_OUT_N_ONLY) * completion;
+          if (QA_isDateInRange_(tsO, periodStartStr, periodEndStr, QA_TZ)) {
+            periodPoints += ptsN;
+            if (ajTrue) periodBreakdown.Out_N_and_AK += ptsN; else periodBreakdown.Out_N_only += ptsN;
+          }
+          if (QA_isDateInRange_(tsO, multiPeriodStartStr, multiPeriodEndStr, QA_TZ)) {
+            multiPeriodTotalPoints += ptsN;
+            if (ajTrue) multiPeriodBreakdown.Out_N_and_AK += ptsN; else multiPeriodBreakdown.Out_N_only += ptsN;
+          }
         }
       }
     }
@@ -227,10 +308,12 @@ function QA_getDashboardDataForEmail_(email) {
 
 
   var multiPeriodAvg = numPeriodsForAvg > 0 ? multiPeriodTotalPoints / numPeriodsForAvg : 0;
-  return QA_buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText);
+  return QA_buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, periodBreakdown, multiPeriodBreakdown);
 }
 
-function QA_buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText) {
+function QA_buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, periodBreakdown, multiPeriodBreakdown) {
+  periodBreakdown = periodBreakdown || {};
+  multiPeriodBreakdown = multiPeriodBreakdown || {};
   var pay = QA_additionalPay_(periodPoints);
   var payProgress = QA_progressToNextPayTier_(periodPoints);
   var mult = QA_consistencyMultiplier_(multiPeriodAvg);
@@ -254,6 +337,10 @@ function QA_buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText)
     earnings: {
       amount: earningsInt,
       text: `You are earning an incremental $${earningsInt} this week!`
+    },
+    pointsBreakdown: {
+      period: periodBreakdown,
+      multiPeriod: multiPeriodBreakdown
     }
   };
 }
