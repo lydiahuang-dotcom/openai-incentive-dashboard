@@ -57,6 +57,13 @@ const PILOT_ACCESS_EMAILS = [
  'rana.traboulsi@invisible.email'
 ];
 
+/** Managers who can export the full report (CSV). */
+const MANAGER_EMAILS = [
+  'lydia.huang@invisible.email',
+  'michael.hernandez@invisible.email',
+  'rana.traboulsi@invisible.email'
+];
+
 
 /** Normalize email for comparison: strip "Name <email>" to just the address, trim, lowercase. */
 function normalizeEmail_(str) {
@@ -84,6 +91,19 @@ function doGet(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
+
+/** True if the current user (Session.getActiveUser().getEmail()) is in MANAGER_EMAILS. Use when deployed "Execute as: User". */
+function isManager() {
+  try {
+    const raw = Session.getActiveUser().getEmail();
+    const email = raw ? normalizeEmail_(raw) : '';
+    if (!email) return false;
+    const list = MANAGER_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
+    return list.indexOf(email) !== -1;
+  } catch (e) {
+    return false;
+  }
+}
 
 /** Main data endpoint for the UI. When deployed "Execute as: User", the viewer must have at least Viewer access to the spreadsheet. */
 function getDashboardData() {
@@ -222,7 +242,185 @@ function getDashboardDataForEmail_(email) {
 }
 
 
-/** Build all UI-facing values (tiers, progress, text). weekCompletions/fourWeekAvg hold points for front-end. */
+/**
+ * Load sheet once and build period/multi-period aggregates for current + last 2 periods (manager report).
+ * Returns { allEmails, periods: [{ periodRangeText, periodTotalsByEmail, multiPeriodPointsByEmail, validPoolC, validPoolE }] }.
+ */
+function getAllAgentsDataForReport_() {
+  const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_NAME);
+  if (!sh) return null;
+
+  const now = new Date();
+  const currentPeriodIndex = getPeriodIndex_(now, TZ);
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) {
+    const periods = buildReportPeriodsTrainer_([], currentPeriodIndex, pilotAllowed);
+    return { allEmails: [...pilotAllowed], periods };
+  }
+
+  const valuesMain = sh.getRange(2, 7, lastRow, 12).getValues();
+  const valuesError = sh.getRange(2, 36, lastRow, 36).getValues();
+
+  const sheetEmails = new Set();
+  const parsedRows = [];
+
+  for (let i = 0; i < valuesMain.length; i++) {
+    const main = valuesMain[i];
+    const rowEmail = String(main[1] || '').trim().toLowerCase();
+    if (!rowEmail) continue;
+
+    const ts = main[0];
+    if (!(ts instanceof Date)) continue;
+
+    const st = String(main[3] || '').trim();
+    if (!ALLOWED_STATUSES || !ALLOWED_STATUSES.length || !ALLOWED_STATUSES.includes(st)) continue;
+
+    const kVal = Number(main[5] || 0);
+    if (!isFinite(kVal)) continue;
+
+    const hRaw = String(main[2] || '').trim().toLowerCase();
+    let basePoints = 0;
+    if (hRaw.indexOf('rshf') !== -1) basePoints = POINTS_RSHF;
+    else if (hRaw.indexOf('evals') !== -1 || hRaw.indexOf('ema') !== -1 || (hRaw.indexOf('hrm') !== -1 && hRaw.indexOf('hlrm') === -1)) basePoints = POINTS_EVALS;
+    else if (hRaw.indexOf('hlrm') !== -1) basePoints = POINTS_HLRM;
+    else if (hRaw.indexOf('categories') !== -1) basePoints = POINTS_CATEGORIES;
+    else if (hRaw.indexOf('multi-out') !== -1) basePoints = POINTS_MULTI_OUT;
+    if (basePoints === 0) continue;
+
+    const pts = basePoints * kVal;
+    const c = kVal;
+    const errVal = isFinite(Number(valuesError[i][0])) ? Number(valuesError[i][0]) : 0;
+    const dayStr = toDateStrInTz_(ts, TZ);
+
+    sheetEmails.add(rowEmail);
+    parsedRows.push({ email: rowEmail, dayStr, ts: ts.getTime(), pts, c, errVal });
+  }
+
+  const allEmails = [...new Set([...pilotAllowed, ...sheetEmails])];
+  const periods = buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex, pilotAllowed);
+  return { allEmails, periods };
+}
+
+/** Build report data for current and last 2 periods (Trainer). */
+function buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex, pilotAllowed) {
+  const numPeriods = MULTIPLIER_NUM_PERIODS;
+  const reportIndexes = [];
+  for (let off = -2; off <= 0; off++) {
+    const p = currentPeriodIndex + off;
+    if (p >= 0) reportIndexes.push(p);
+  }
+  if (reportIndexes.length === 0) reportIndexes.push(0);
+
+  const result = [];
+  for (let idx = 0; idx < reportIndexes.length; idx++) {
+    const periodIndex = reportIndexes[idx];
+    const b = getPeriodBoundsByIndex_(periodIndex, TZ);
+    const periodStartStr = b.periodStartStr;
+    const periodEndStr = b.periodEndStr;
+    const multiPeriodStartStr = b.multiPeriodStartStr;
+    const multiPeriodEndStr = b.multiPeriodEndStr;
+
+    const inMulti = parsedRows.filter(function(r) {
+      return r.dayStr >= multiPeriodStartStr && r.dayStr <= multiPeriodEndStr;
+    });
+    inMulti.sort(function(a, b) { return a.ts - b.ts; });
+
+    const validPoolC = Object.create(null);
+    const validPoolE = Object.create(null);
+    const periodTotalsByEmail = Object.create(null);
+    const multiPeriodPointsByEmail = Object.create(null);
+
+    for (let i = 0; i < inMulti.length; i++) {
+      const r = inMulti[i];
+      const curC = validPoolC[r.email] || 0;
+      const curE = validPoolE[r.email] || 0;
+      const newC = curC + r.c;
+      const newE = curE + r.errVal;
+      const underCeiling = (newC > 8 && newE <= 0.125 * newC) || (newC <= 8 && newE <= 1);
+
+      if (underCeiling) {
+        validPoolC[r.email] = newC;
+        validPoolE[r.email] = newE;
+        multiPeriodPointsByEmail[r.email] = (multiPeriodPointsByEmail[r.email] || 0) + r.pts;
+        if (r.dayStr >= periodStartStr && r.dayStr <= periodEndStr) {
+          periodTotalsByEmail[r.email] = (periodTotalsByEmail[r.email] || 0) + r.pts;
+        }
+      }
+    }
+
+    const periodRangeText = Utilities.formatDate(b.periodStart, TZ, 'M/d/yyyy') + ' - ' + Utilities.formatDate(b.periodEnd, TZ, 'M/d/yyyy');
+    result.push({
+      periodRangeText,
+      periodTotalsByEmail,
+      multiPeriodPointsByEmail,
+      validPoolC,
+      validPoolE
+    });
+  }
+  return result;
+}
+
+
+/** Escape a CSV field (wrap in quotes and double internal quotes if needed). */
+function csvEscape_(val) {
+  const s = String(val == null ? '' : val);
+  if (s.indexOf('"') !== -1 || s.indexOf(',') !== -1 || s.indexOf('\n') !== -1) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+
+/**
+ * Manager-only: return full report as CSV string (current + last 2 periods).
+ * Columns: Period, Agent email, Total points of period, Qualified incentive, Average points in past 4 periods, Qualified multiplier, Total payout.
+ * Total payout = Qualified incentive * Qualified multiplier when quality-eligible; otherwise 0.
+ */
+function getManagerReport() {
+  if (!isManager()) {
+    return { error: 'Unauthorized' };
+  }
+  const data = getAllAgentsDataForReport_();
+  if (!data) return { error: 'Sheet not found or no data' };
+
+  const numPeriods = MULTIPLIER_NUM_PERIODS;
+  const header = ['Period', 'Agent email', 'Total points of period', 'Qualified incentive', 'Average points in past 4 periods', 'Qualified multiplier', 'Total payout'];
+  const rows = [header.map(c => csvEscape_(c)).join(',')];
+
+  for (let p = 0; p < data.periods.length; p++) {
+    const period = data.periods[p];
+    for (let i = 0; i < data.allEmails.length; i++) {
+      const email = data.allEmails[i];
+      const periodPoints = period.periodTotalsByEmail[email] || 0;
+      const multiTotal = period.multiPeriodPointsByEmail[email] || 0;
+      const multiPeriodAvg = numPeriods > 0 ? multiTotal / numPeriods : 0;
+      const pay = additionalPay_(periodPoints);
+      const mult = consistencyMultiplier_(multiPeriodAvg);
+      // Quality is applied per task (only qualifying tasks count toward points); do not zero out the person's payout.
+      const totalPayout = pay.amount * (mult.value || 0);
+
+      rows.push([
+        csvEscape_(period.periodRangeText),
+        csvEscape_(email),
+        csvEscape_(Math.round(periodPoints)),
+        csvEscape_(pay.amount),
+        csvEscape_(Math.floor(multiPeriodAvg)),
+        csvEscape_(mult.value),
+        csvEscape_(Math.round(totalPayout))
+      ].join(','));
+    }
+  }
+
+  return { csv: rows.join('\r\n') };
+}
+
+
+/** Build all UI-facing values (tiers, progress, text). weekCompletions/fourWeekAvg hold points for front-end.
+ * Quality is applied per task (only qualifying tasks count); we do not disqualify the whole person. */
 function buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, leaderboard, qualityEligible) {
   const pay = additionalPay_(periodPoints);
   const payProgress = progressToNextPayTier_(periodPoints);
@@ -234,9 +432,6 @@ function buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, le
     earnings = mult.value ? pay.amount * mult.value : pay.amount;
   }
   const earningsInt = Math.round(earnings);
-  const earningsText = (qualityEligible === true)
-    ? `You are earning an incremental $${earningsInt} in this period!`
-    : 'You are not eligible for the additional earnings due to quality issues.';
 
   return {
     email,
@@ -247,7 +442,7 @@ function buildResponse_(email, periodPoints, multiPeriodAvg, periodRangeText, le
     payProgress,
     multiplier: { value: mult.value, badgeText: mult.badgeText },
     multProgress,
-    earnings: { amount: (qualityEligible === true) ? earningsInt : 0, text: earningsText },
+    earnings: { amount: earningsInt, text: `You are earning an incremental $${earningsInt} in this period!` },
     leaderboard
   };
 }
@@ -463,8 +658,42 @@ function getPeriodBounds_(date, tz) {
    multiPeriodStartStr,
    multiPeriodEndStr: periodEndStr,
    periodStart: periodStartDate,
-   periodEnd: periodEndDate
+   periodEnd: periodEndDate,
+   periodIndex
  };
+}
+
+/** Return 0-based period index for a date in tz. */
+function getPeriodIndex_(date, tz) {
+  const startY = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'yyyy'));
+  const startM = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'MM')) - 1;
+  const startD = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'dd'));
+  const refY = Number(Utilities.formatDate(date, tz, 'yyyy'));
+  const refM = Number(Utilities.formatDate(date, tz, 'MM')) - 1;
+  const refD = Number(Utilities.formatDate(date, tz, 'dd'));
+  const startAtNoon = new Date(startY, startM, startD, 12, 0, 0, 0);
+  const refAtNoon = new Date(refY, refM, refD, 12, 0, 0, 0);
+  const daysSinceStart = Math.floor((refAtNoon - startAtNoon) / (24 * 60 * 60 * 1000));
+  return Math.max(0, Math.floor(daysSinceStart / PERIOD_DAYS));
+}
+
+/** Bounds for a given 0-based period index. */
+function getPeriodBoundsByIndex_(periodIndex, tz) {
+  const startY = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'yyyy'));
+  const startM = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'MM')) - 1;
+  const startD = Number(Utilities.formatDate(COMPETITION_START_DATE, tz, 'dd'));
+  const startAtNoon = new Date(startY, startM, startD, 12, 0, 0, 0);
+  const periodStartDate = addDays_(new Date(startAtNoon.getTime()), periodIndex * PERIOD_DAYS);
+  const periodEndDate = addDays_(new Date(startAtNoon.getTime()), periodIndex * PERIOD_DAYS + (PERIOD_DAYS - 1));
+  const multiStartDate = addDays_(new Date(startAtNoon.getTime()), (periodIndex - (MULTIPLIER_NUM_PERIODS - 1)) * PERIOD_DAYS);
+  return {
+    periodStartStr: toDateStrInTz_(periodStartDate, tz),
+    periodEndStr: toDateStrInTz_(periodEndDate, tz),
+    periodStart: periodStartDate,
+    periodEnd: periodEndDate,
+    multiPeriodStartStr: toDateStrInTz_(multiStartDate, tz),
+    multiPeriodEndStr: toDateStrInTz_(periodEndDate, tz)
+  };
 }
 
 

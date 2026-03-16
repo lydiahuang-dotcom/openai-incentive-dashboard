@@ -354,7 +354,10 @@
           <div class="title">Momentum Dashboard</div>
           <div id="subtitle" class="subtitle">Loading your personal view…</div>
         </div>
-        <button id="refreshBtn" onclick="load()">Refresh</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button id="exportReportBtn" type="button" onclick="exportManagerReport()" style="display:none;">Export full report (CSV)</button>
+          <button id="refreshBtn" onclick="load()">Refresh</button>
+        </div>
       </div>
 
       <div class="grid-top">
@@ -671,6 +674,30 @@
           errDiv.style.display = 'block';
         }
       }
+      function exportManagerReport() {
+        var btn = document.getElementById('exportReportBtn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Export full report (CSV)'; }
+            if (!result) return;
+            if (result.error) { alert(result.error); return; }
+            if (!result.csv) return;
+            var blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'trainer-incentive-report.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+          })
+          .withFailureHandler(function() {
+            if (btn) { btn.disabled = false; btn.textContent = 'Export full report (CSV)'; }
+            alert('Export failed.');
+          })
+          .getManagerReport();
+      }
+
       function load() {
         var errBlock = document.getElementById('trainerErrorBlock');
         if (errBlock) errBlock.style.display = 'none';
@@ -686,6 +713,10 @@
             if (data.error) { showError(data.error); alert(data.error); return; }
             if (data.noAccess) { showNoAccess(); return; }
             render(data);
+            google.script.run.withSuccessHandler(function(isMgr) {
+              var btn = document.getElementById('exportReportBtn');
+              if (btn && isMgr) btn.style.display = '';
+            }).isManager();
             await runAnimationsSequence(data);
           })
           .withFailureHandler(function (err) {

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes dayCardIn {
+        from {
+          opacity: 0;
+          transform: translateX(-24px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      @keyframes questionPulse {
+        0%, 100% { opacity: 0.85; transform: scale(1); filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.4)); }
+        50% { opacity: 1; transform: scale(1.08); filter: drop-shadow(0 0 16px rgba(96, 165, 250, 0.8)); }
+      }
+      .day-winner-card {
+        animation: dayCardIn 0.45s ease-out forwards;
+        opacity: 0;
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      #last7Cards {
+        width: 100%;
+        display: flex;
+        gap: 0.75rem;
+      }
+      .day-winner-card.today-card .today-q {
+        animation: questionPulse 2s ease-in-out infinite;
+      }
+      .team-title-btn {
+        cursor: pointer;
+        user-select: none;
+      }
+      .team-title-btn:hover { opacity: 0.9; }
+      .top-performers-dropdown {
+        overflow: hidden;
+        transition: max-height 0.25s ease-out, opacity 0.2s ease;
+      }
+    </style>
+  </head>
+  <body class="bg-black text-white font-sans p-8">
+    <div class="max-w-4xl mx-auto relative">
+      <button id="refreshBtn" type="button" class="absolute top-0 right-0 px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 hover:text-white transition-colors" title="Refresh data">Refresh</button>
+      <p class="text-center text-slate-400 mb-2">Dear Imageneers, welcome to:</p>
+      <h1 class="text-4xl font-bold mb-2 text-center text-blue-400">The House Leaderboard</h1>
+      <p class="text-center text-slate-400 mb-8">Total Daily Goal: 56 Tasks per Day (based on EST timezone)</p>
+      
+      <div id="leaderboard" class="grid gap-6">
+        <p class="text-center italic">Loading latest stats...</p>
+      </div>
+
+      <div id="last7Section" class="mt-10 mb-6" style="display: none;">
+        <h2 class="text-center text-slate-300 text-lg font-semibold mb-4">Last 7 Days Winner</h2>
+        <div id="last7Cards" class="items-stretch"></div>
+      </div>
+
+      <p class="text-center text-slate-500 text-xs mt-8">
+      Last Updated: <?= lastUpdated ?>
+      </p>
+    </div>
+
+    <script>
+      function loadData() {
+        var btn = document.getElementById('refreshBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+        }
+        google.script.run
+          .withSuccessHandler(function(data) {
+            var list = null;
+            var topPerf = {};
+            var pending = 2;
+            function maybeRender() {
+              if (pending !== 0) return;
+              showTeams(data, topPerf);
+              showLast7Days(list);
+              attachTeamDropdownToggles();
+              if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+            }
+            google.script.run.withSuccessHandler(function(r) { list = r; pending--; maybeRender(); }).GET_LAST_7_DAYS_WINNERS();
+            google.script.run.withSuccessHandler(function(r) { topPerf = r || {}; pending--; maybeRender(); }).GET_TOP_PERFORMERS_LAST_7_DAYS();
+          })
+          .withFailureHandler(function() {
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+          })
+          .GET_TEAM_LEADERBOARD();
+      }
+
+      window.onload = function() {
+        document.getElementById('refreshBtn').addEventListener('click', loadData);
+        loadData();
+      };
+
+      const teamEmoji = { 'Fenrir': '🐺', 'Titan': '🌞', 'Pegasus': '🦄', 'Sphinx': '🦁' };
+
+      function buildTopPerformersHtml(performers) {
+        if (!performers || performers.length === 0) {
+          return '<p class="text-slate-500 text-sm py-2">No data for last 7 days.</p>';
+        }
+        var html = '<p class="text-slate-400 text-xs font-medium mb-2">Top Performers (🏆 = Number of Tasks Submitted in the Last 7 Days)</p>';
+        for (var p = 0; p < performers.length; p++) {
+          var x = performers[p];
+          var count = Math.max(0, parseInt(x.count, 10) || 0);
+          var trophies = '';
+          for (var t = 0; t < count; t++) trophies += '🏆';
+          html += '<div class="flex items-center justify-between py-1 text-sm">';
+          html += '<span class="text-slate-200 font-medium">' + (x.name || '—') + '</span>';
+          html += '<span class="text-amber-400/90 text-right">' + trophies + '</span>';
+          html += '</div>';
+        }
+        return html;
+      }
+
+      function showTeams(data, topPerformers) {
+        topPerformers = topPerformers || {};
+        const container = document.getElementById('leaderboard');
+        container.innerHTML = '';
+
+        for (let i = 1; i < data.length; i++) {
+          const [name, count, progress] = data[i];
+          const pct = Math.min(Math.round(progress * 100), 100);
+          const color = pct > 80 ? 'bg-green-500' : pct > 40 ? 'bg-yellow-500' : 'bg-red-500';
+          const emoji = teamEmoji[name] || '';
+          const performers = topPerformers[name] || [];
+          const performersHtml = buildTopPerformersHtml(performers);
+
+          container.innerHTML += `
+            <div class="team-card bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700" data-team="${name}">
+              <div class="flex justify-between items-center mb-2">
+                <span class="team-title-btn text-xl font-bold">${emoji ? emoji + ' ' : ''}${name}</span>
+                <span class="font-mono text-blue-300">${count} / 14</span>
+              </div>
+              <div class="w-full bg-slate-700 rounded-full h-4">
+                <div class="${color} h-4 rounded-full transition-all duration-1000" style="width: ${pct}%"></div>
+              </div>
+              <p class="text-right mt-1 text-sm text-slate-500">${pct}% Complete</p>
+              <div class="top-performers-dropdown mt-3 pt-3 border-t border-slate-600" style="max-height:0; opacity:0">
+                ${performersHtml}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      function attachTeamDropdownToggles() {
+        document.querySelectorAll('.team-title-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var card = btn.closest('.team-card');
+            var dd = card ? card.querySelector('.top-performers-dropdown') : null;
+            if (!dd) return;
+            var isOpen = dd.style.maxHeight && dd.style.maxHeight !== '0px';
+            dd.style.maxHeight = isOpen ? '0' : '220px';
+            dd.style.opacity = isOpen ? '0' : '1';
+          });
+        });
+      }
+
+      function showLast7Days(list) {
+        var section = document.getElementById('last7Section');
+        var container = document.getElementById('last7Cards');
+        if (!section || !container) return;
+        if (!list || list.length === 0) return;
+        section.style.display = 'block';
+        container.innerHTML = '';
+        for (var i = 0; i < list.length; i++) {
+          var d = list[i];
+          var delay = i * 120;
+          var card = document.createElement('div');
+          card.className = 'day-winner-card bg-slate-800 rounded-xl border border-slate-700 p-4 text-center relative flex flex-col justify-center items-center';
+          if (d.isToday) card.classList.add('today-card');
+          card.style.animationDelay = delay + 'ms';
+
+          if (d.isToday) {
+            card.innerHTML =
+              '<div class="text-slate-400 text-sm font-medium mb-2">' + (d.dateDisplay || d.dateStr) + '</div>' +
+              '<div class="today-q text-5xl md:text-6xl font-bold text-blue-400/90 my-2" style="line-height:1">?</div>' +
+              '<div class="text-slate-400 text-xs font-medium">Today</div>' +
+              '<div class="text-slate-500 text-xs mt-1">Winner TBD</div>';
+          } else {
+            var emoji = teamEmoji[d.teamName] || '—';
+            card.innerHTML =
+              '<div class="text-slate-400 text-sm font-medium mb-2">' + (d.dateDisplay || d.dateStr) + '</div>' +
+              '<div class="text-3xl md:text-4xl my-2">' + emoji + '</div>' +
+              '<div class="text-slate-200 font-bold text-sm">' + (d.teamName || '—') + '</div>' +
+              '<div class="text-blue-300 font-mono text-sm mt-1">' + (d.count || 0) + '</div>';
+          }
+          container.appendChild(card);
+        }
+      }
+    </script>
+  </body>
+</html>

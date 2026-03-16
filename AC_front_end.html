@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes dayCardIn {
+        from {
+          opacity: 0;
+          transform: translateX(-24px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      .batch-card {
+        animation: dayCardIn 0.45s ease-out forwards;
+        opacity: 0;
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      #batchLeaderboardCards {
+        width: 100%;
+        display: flex;
+        gap: 0.75rem;
+      }
+      .batch-tab {
+        cursor: pointer;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgb(51 65 85);
+        background: rgb(30 41 59);
+        color: rgb(203 213 225);
+        font-weight: 600;
+        font-size: 0.875rem;
+      }
+      .batch-tab:hover {
+        background: rgb(51 65 85);
+        color: white;
+      }
+      .batch-tab.active {
+        background: rgb(59 130 246);
+        border-color: rgb(59 130 246);
+        color: white;
+      }
+      .batch-panel { display: none; }
+      .batch-panel.active { display: block; }
+    </style>
+  </head>
+  <body class="bg-black text-white font-sans p-8">
+    <div class="max-w-5xl mx-auto relative">
+      <button id="refreshBtn" type="button" class="absolute top-0 right-0 px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 hover:text-white transition-colors" title="Refresh data">Refresh</button>
+      <p class="text-center text-slate-400 mb-2">Welcome to:</p>
+      <h1 class="text-4xl font-bold mb-2 text-center text-blue-400">Gladiator Battle Board</h1>
+
+      <div id="currentBatchesContainer" class="space-y-10">
+        <p class="text-center italic">Loading latest stats...</p>
+      </div>
+
+      <div id="batchWinnersSection" class="mt-10 mb-6" style="display: none;">
+        <h2 class="text-center text-slate-300 text-lg font-semibold mb-2">Batch Winners Leaderboard</h2>
+        <p class="text-center text-slate-500 text-sm mb-4">⭐ = 1 batch won</p>
+        <div id="batchWinnersList" class="grid gap-3 max-w-2xl mx-auto"></div>
+      </div>
+
+      <p class="text-center text-slate-500 text-xs mt-8">
+      Last Updated: <?= lastUpdated ?>
+      </p>
+    </div>
+
+    <script>
+      var timerIntervals = [];
+
+      function loadData() {
+        var btn = document.getElementById('refreshBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+        }
+        google.script.run
+          .withSuccessHandler(function(payload) {
+            if (!payload) {
+              if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+              return;
+            }
+            var currentBatchesData = payload.currentBatchesData || [];
+            var batchWinners = payload.batchWinners || {};
+            showCurrentBatches(currentBatchesData);
+            showBatchWinners(batchWinners);
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+          })
+          .withFailureHandler(function() {
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+            document.getElementById('currentBatchesContainer').innerHTML = '<p class="text-center text-red-400">Failed to load. Check that the sheet name is "Submission sheet" and the script has access to the config spreadsheet.</p>';
+          })
+          .GET_AC_DASHBOARD_DATA();
+      }
+
+      function updateFightTimer(elId, startMs) {
+        if (startMs == null) return;
+        var el = document.getElementById(elId);
+        if (!el) return;
+        var elapsed = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+        var days = Math.floor(elapsed / 86400);
+        var rest = elapsed % 86400;
+        var h = Math.floor(rest / 3600);
+        var m = Math.floor((rest % 3600) / 60);
+        var s = rest % 60;
+        var parts = [];
+        if (days !== 0) parts.push(days === 1 ? '1 day' : days + ' days');
+        parts.push(h + ' hrs');
+        parts.push(m + ' mins');
+        parts.push(s + ' sec');
+        el.textContent = parts.join(', ');
+      }
+
+      window.onload = function() {
+        document.getElementById('refreshBtn').addEventListener('click', loadData);
+        loadData();
+      };
+
+      const teamEmoji = { 'Legion': '⚔️', 'Squadron': '🦅', 'Titans': '🌞', 'Vanguard': '🛡️' };
+      const medals = ['🥇', '🥈', '🥉'];
+
+      function buildBatchPanelHtml(batch, b) {
+        var batchName = batch.batchName || ('Batch ' + (b + 1));
+        var data = batch.leaderboard || [["Team", "Submitted"]];
+        var topPerf = batch.topPerformers || {};
+        var startMs = batch.batchStartMs;
+        var timerId = 'fightTimer_' + b;
+        var html = '';
+        if (startMs !== null && startMs !== undefined) {
+          html += '<div class="text-center mb-4 py-3 rounded-lg bg-slate-800/50 border border-slate-700">';
+          html += '<p class="text-slate-300 text-base mb-1">We have been fighting for:</p>';
+          html += '<p id="' + timerId + '" class="text-orange-400 text-2xl md:text-3xl font-semibold">—</p></div>';
+        }
+        var counts = [];
+        for (var i = 1; i < data.length; i++) counts.push(parseInt(data[i][1], 10) || 0);
+        var maxCount = Math.max.apply(null, counts);
+        if (maxCount === 0) maxCount = 1;
+        html += '<div class="grid gap-6 mb-6">';
+        for (var i = 1; i < data.length; i++) {
+          var name = data[i][0];
+          var count = parseInt(data[i][1], 10) || 0;
+          var pct = Math.min(100, Math.round((count / maxCount) * 100));
+          var color = pct >= 80 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+          var emoji = teamEmoji[name] || '';
+          html += '<div class="team-card bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700">';
+          html += '<div class="flex justify-between items-center mb-2">';
+          html += '<span class="text-2xl md:text-3xl font-bold">' + (emoji ? emoji + ' ' : '') + escapeHtml(name) + '</span>';
+          html += '<span class="font-mono text-blue-300 text-xl">' + count + '</span></div>';
+          html += '<div class="w-full bg-slate-700 rounded-full h-4">';
+          html += '<div class="' + color + ' h-4 rounded-full transition-all duration-1000" style="width: ' + pct + '%"></div></div></div>';
+        }
+        html += '</div>';
+        html += '<h3 class="text-slate-400 text-base font-semibold mb-3">Leaderboard for this batch</h3>';
+        html += '<div class="flex gap-3 flex-wrap items-stretch mb-6">';
+        var teams = ['Legion', 'Squadron', 'Titans', 'Vanguard'];
+        for (var i = 0; i < teams.length; i++) {
+          var name = teams[i];
+          var list = topPerf[name] || [];
+          var emoji = teamEmoji[name] || '';
+          html += '<div class="batch-card bg-slate-800 rounded-xl border border-slate-700 p-4 flex flex-col items-center" style="flex:1 1 0; min-width:0; animation-delay: ' + (i * 120) + 'ms">';
+          html += '<div class="text-3xl md:text-4xl mb-1">' + emoji + '</div>';
+          html += '<div class="text-slate-200 font-bold text-lg mb-3">' + escapeHtml(name) + '</div>';
+          if (list.length === 0) {
+            html += '<p class="text-slate-500 text-xs">No data this batch.</p>';
+          } else {
+            for (var p = 0; p < list.length; p++) {
+              var x = list[p];
+              var cnt = Math.max(0, parseInt(x.count, 10) || 0);
+              html += '<div class="w-full flex items-center justify-between py-1.5 text-sm border-b border-slate-700 last:border-0">';
+              html += '<span class="text-slate-300 truncate mr-2">' + (medals[p] || '') + ' ' + escapeHtml(x.name || '—') + '</span>';
+              html += '<span class="text-orange-400/90 shrink-0">🔥 × ' + cnt + '</span></div>';
+            }
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+        return { html: html, timerId: (startMs != null) ? timerId : null, startMs: startMs };
+      }
+
+      function showCurrentBatches(currentBatchesData) {
+        var container = document.getElementById('currentBatchesContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        if (!currentBatchesData || currentBatchesData.length === 0) {
+          container.innerHTML = '<p class="text-center italic text-slate-500">No current batches. Add rows in the config sheet (Col A = batch name, Col D = empty to run).</p>';
+          return;
+        }
+        var timerIds = [];
+        if (currentBatchesData.length === 1) {
+          var batch = currentBatchesData[0];
+          var batchName = batch.batchName || 'Batch 1';
+          var out = buildBatchPanelHtml(batch, 0);
+          if (out.timerId) timerIds.push({ id: out.timerId, ms: batch.batchStartMs });
+          var block = document.createElement('div');
+          block.className = 'batch-block';
+          block.innerHTML = '<h2 class="text-slate-300 text-lg font-semibold mb-3">' + escapeHtml(batchName) + '</h2>' + out.html;
+          container.appendChild(block);
+        } else {
+          var tabBar = document.createElement('div');
+          tabBar.className = 'flex flex-wrap gap-2 mb-4';
+          tabBar.setAttribute('role', 'tablist');
+          var panelsWrap = document.createElement('div');
+          panelsWrap.className = 'mt-4';
+          for (var b = 0; b < currentBatchesData.length; b++) {
+            var batch = currentBatchesData[b];
+            var batchName = batch.batchName || ('Batch ' + (b + 1));
+            var tabBtn = document.createElement('button');
+            tabBtn.type = 'button';
+            tabBtn.className = 'batch-tab' + (b === 0 ? ' active' : '');
+            tabBtn.textContent = batchName;
+            tabBtn.setAttribute('data-tabindex', b);
+            tabBtn.setAttribute('role', 'tab');
+            tabBar.appendChild(tabBtn);
+            var panel = document.createElement('div');
+            panel.id = 'batchPanel_' + b;
+            panel.className = 'batch-panel' + (b === 0 ? ' active' : '');
+            panel.setAttribute('role', 'tabpanel');
+            var out = buildBatchPanelHtml(batch, b);
+            if (out.timerId) timerIds.push({ id: out.timerId, ms: batch.batchStartMs });
+            panel.innerHTML = out.html;
+            panelsWrap.appendChild(panel);
+          }
+          container.appendChild(tabBar);
+          container.appendChild(panelsWrap);
+          tabBar.addEventListener('click', function(e) {
+            var btn = e.target.closest('.batch-tab');
+            if (!btn) return;
+            var idx = parseInt(btn.getAttribute('data-tabindex'), 10);
+            tabBar.querySelectorAll('.batch-tab').forEach(function(t) { t.classList.remove('active'); });
+            btn.classList.add('active');
+            panelsWrap.querySelectorAll('.batch-panel').forEach(function(p, i) {
+              p.classList.toggle('active', i === idx);
+            });
+          });
+        }
+        timerIntervals.forEach(function(id) { clearInterval(id); });
+        timerIntervals = [];
+        if (timerIds.length > 0) {
+          function updateAll() {
+            for (var i = 0; i < timerIds.length; i++) {
+              updateFightTimer(timerIds[i].id, timerIds[i].ms);
+            }
+          }
+          updateAll();
+          timerIntervals.push(setInterval(updateAll, 1000));
+        }
+      }
+
+      function escapeHtml(s) {
+        if (s == null) return '';
+        var div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      function showBatchWinners(batchWinners) {
+        var section = document.getElementById('batchWinnersSection');
+        var container = document.getElementById('batchWinnersList');
+        if (!section || !container) return;
+        batchWinners = batchWinners || {};
+        var teams = ['Legion', 'Squadron', 'Titans', 'Vanguard'];
+        var list = teams.map(function(name) { return { name: name, stars: parseInt(batchWinners[name], 10) || 0 }; });
+        list.sort(function(a, b) { return b.stars - a.stars; });
+        container.innerHTML = '';
+        for (var i = 0; i < list.length; i++) {
+          var t = list[i];
+          var emoji = teamEmoji[t.name] || '';
+          var starsStr = '';
+          for (var s = 0; s < t.stars; s++) starsStr += '⭐';
+          if (!starsStr) starsStr = '—';
+          var card = document.createElement('div');
+          card.className = 'batch-winner-row bg-slate-800 rounded-xl border border-slate-700 px-4 py-3 flex items-center justify-between';
+          card.innerHTML =
+            '<span class="text-slate-200 font-bold">' + emoji + ' ' + t.name + '</span>' +
+            '<span class="text-amber-400/90 text-xl">' + starsStr + '</span>';
+          container.appendChild(card);
+        }
+        if (list.length > 0) {
+          var lastTeam = list[list.length - 1];
+          var cheer = document.createElement('p');
+          cheer.className = 'text-center text-amber-300/80 text-sm mt-2 font-medium italic';
+          cheer.textContent = '(You can do it ' + lastTeam.name + '!)';
+          container.appendChild(cheer);
+        }
+        section.style.display = 'block';
+      }
+    </script>
+  </body>
+</html>
