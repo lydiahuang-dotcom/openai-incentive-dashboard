@@ -186,7 +186,7 @@ function getDashboardDataForEmail_(email) {
     const hRaw = String(main[2] || '').trim().toLowerCase(); // col I
     let basePoints = 0;
     if (hRaw.indexOf('rshf') !== -1) basePoints = POINTS_RSHF;
-    else if (hRaw.indexOf('evals') !== -1 || hRaw.indexOf('ema') !== -1 || (hRaw.indexOf('hrm') !== -1 && hRaw.indexOf('hlrm') === -1)) basePoints = POINTS_EVALS;
+    else if (hRaw.indexOf('evals') !== -1 || hRaw.indexOf('eval') !== -1 ||hRaw.indexOf('ema') !== -1 || (hRaw.indexOf('hrm') !== -1 && hRaw.indexOf('hlrm') === -1)) basePoints = POINTS_EVALS;
     else if (hRaw.indexOf('hlrm') !== -1) basePoints = POINTS_HLRM;
     else if (hRaw.indexOf('categories') !== -1) basePoints = POINTS_CATEGORIES;
     else if (hRaw.indexOf('multi-out') !== -1) basePoints = POINTS_MULTI_OUT;
@@ -285,7 +285,7 @@ function getAllAgentsDataForReport_() {
     const hRaw = String(main[2] || '').trim().toLowerCase();
     let basePoints = 0;
     if (hRaw.indexOf('rshf') !== -1) basePoints = POINTS_RSHF;
-    else if (hRaw.indexOf('evals') !== -1 || hRaw.indexOf('ema') !== -1 || (hRaw.indexOf('hrm') !== -1 && hRaw.indexOf('hlrm') === -1)) basePoints = POINTS_EVALS;
+    else if (hRaw.indexOf('evals') !== -1 || hRaw.indexOf('eval') !== -1 || hRaw.indexOf('ema') !== -1 || (hRaw.indexOf('hrm') !== -1 && hRaw.indexOf('hlrm') === -1)) basePoints = POINTS_EVALS;
     else if (hRaw.indexOf('hlrm') !== -1) basePoints = POINTS_HLRM;
     else if (hRaw.indexOf('categories') !== -1) basePoints = POINTS_CATEGORIES;
     else if (hRaw.indexOf('multi-out') !== -1) basePoints = POINTS_MULTI_OUT;
@@ -327,7 +327,8 @@ function buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex, pilotAllowed
     const inMulti = parsedRows.filter(function(r) {
       return r.dayStr >= multiPeriodStartStr && r.dayStr <= multiPeriodEndStr;
     });
-    inMulti.sort(function(a, b) { return a.ts - b.ts; });
+    // Process in same order as dashboard (sheet order), not by timestamp, so report matches individual view
+    // inMulti preserves parsedRows order (sheet order)
 
     const validPoolC = Object.create(null);
     const validPoolE = Object.create(null);
