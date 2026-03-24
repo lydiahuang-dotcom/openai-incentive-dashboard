@@ -1,8 +1,9 @@
 /**
  * Production sheet: Col C = unique count, F = Timestamp, G = Email, H = Batch, I = Status, K = Team (1-4 or empty).
  * We read by column letter, filter rows that meet the requirement, then count unique Col C per team.
+ * Col H must contain "hlrm"; Col I must be "task submitted" or "revised" (case-insensitive).
  */
-var BATCH_FILTER = "rm";
+var BATCH_FILTER = "hlrm";
 var TIMEZONE = "America/New_York";
 var TEAM_NAMES = { 1: "Fenrir", 2: "Titan", 3: "Pegasus", 4: "Sphinx" };
 var GOAL = 14;
@@ -58,7 +59,7 @@ function isCountedStatus_(status) {
   return n === "task submitted" || n === "revised";
 }
 
-/** Row meets: has timestamp, team, status; date = dateStr (EST); batch contains "rm"; status = "task submitted" or "revised"; team 1-4. Uses row F as-is (already EST), no timezone conversion. */
+/** Row meets: has timestamp, team, status; date = dateStr (EST); Col H contains "hlrm"; Col I = "task submitted" or "revised"; team 1-4. Uses row F as-is (already EST), no timezone conversion. */
 function rowMeets_(row, dateStr) {
   if (!row.timestamp || !row.team || !row.status) return false;
   try {
@@ -122,7 +123,7 @@ function GET_TEAM_LEADERBOARD() {
   /**
    * Run this from Apps Script (Run > DEBUG_WHY_ROWS_NOT_COUNTED) to see exactly why each row
    * is INCLUDED or EXCLUDED. Check View > Logs or Executions to see the output.
-   * Only logs rows that have batch containing "rm" so you can spot date/team/status issues.
+   * Only logs rows that have Col H containing "hlrm" so you can spot date/team/status issues.
    */
   function DEBUG_WHY_ROWS_NOT_COUNTED() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -137,8 +138,8 @@ function GET_TEAM_LEADERBOARD() {
     var excludedReasons = {};
     rows.forEach(function(row) {
       var batchStr = String(row.batch || "").toLowerCase();
-      var hasRm = batchStr.indexOf(BATCH_FILTER) !== -1;
-      if (!hasRm) return;
+      var hasHlrm = batchStr.includes(BATCH_FILTER);
+      if (!hasHlrm) return;
       var statusNorm = normalizeStatus_(row.status);
       var hasCountedStatus = isCountedStatus_(row.status);
       var teamKey = teamToId_(row.team);

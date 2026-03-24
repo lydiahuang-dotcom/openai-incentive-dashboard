@@ -1,5 +1,15 @@
+/**
+ * Trainer dashboard — access, points, and manager CSV use one rule:
+ * - App access: MANAGER_EMAILS or Active Roster (Col B = Image Production, Col C = Trainer).
+ * - Points & export rows: only those managers plus roster members; sheet rows count only if Col H
+ *   normalizes to a roster email (same as QA: normalizeEmail_ for Col H vs Col A).
+ */
 /** CONFIG **/
 const SHEET_NAME = '[Image] Prod';
+const ROSTER_SHEET_NAME = 'Active Roster';
+/** Col B / Col C must match (trim, case-insensitive) for Col A email to earn points. */
+const ROSTER_COL_B_MATCH = 'image production';
+const ROSTER_COL_C_MATCH = 'trainer';
 const TZ = 'America/New_York';
 
 
@@ -50,14 +60,7 @@ const MULTIPLIER_THRESHOLDS = [
 ];
 
 
-// ——— Pilot launch: only these emails can access the dashboard. Remove after pilot and uncomment sheet-based access below. ———
-const PILOT_ACCESS_EMAILS = [
- 'lydia.huang@invisible.email',
- 'michael.hernandez@invisible.email',
- 'rana.traboulsi@invisible.email'
-];
-
-/** Managers who can export the full report (CSV). */
+/** Managers who can export the full report (CSV) and always have Trainer dashboard access. */
 const MANAGER_EMAILS = [
   'lydia.huang@invisible.email',
   'michael.hernandez@invisible.email',
@@ -71,6 +74,29 @@ function normalizeEmail_(str) {
  const match = s.match(/\<([^\>]+)\>/);
  const emailOnly = match ? match[1].trim() : s;
  return emailOnly.toLowerCase();
+}
+
+/**
+ * Emails in Col A of Active Roster where Col B is Image Production and Col C is Trainer.
+ * Returns null if the roster sheet is missing; otherwise a Set of normalized emails.
+ */
+function getActiveRosterTrainerEmails_(ss) {
+  const sh = ss.getSheetByName(ROSTER_SHEET_NAME);
+  if (!sh) return null;
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return new Set();
+  const a = sh.getRange(2, 1, lastRow, 1).getValues();
+  const b = sh.getRange(2, 2, lastRow, 2).getValues();
+  const c = sh.getRange(2, 3, lastRow, 3).getValues();
+  const out = new Set();
+  for (let i = 0; i < a.length; i++) {
+    const bVal = String(b[i][0] || '').trim().toLowerCase();
+    const cVal = String(c[i][0] || '').trim().toLowerCase();
+    if (bVal !== ROSTER_COL_B_MATCH || cVal !== ROSTER_COL_C_MATCH) continue;
+    const em = normalizeEmail_(a[i][0]);
+    if (em) out.add(em);
+  }
+  return out;
 }
 
 
@@ -123,13 +149,25 @@ function getDashboardData() {
   }
 }
 
-/** Load sheet and build dashboard response. Access: pilot list OR any email appearing in col H. */
+/**
+ * Load sheet and build dashboard response.
+ * Access must already be granted: getDashboardData checks roster (Image Production + Trainer) OR MANAGER_EMAILS.
+ * Period points only accrue for roster members; managers not on roster see 0 (same idea as QA).
+ */
 function getDashboardDataForEmail_(email) {
-  const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
-
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) return { error: 'Sheet "' + SHEET_NAME + '" not found' };
+
+  const rosterTrainerEmails = getActiveRosterTrainerEmails_(ss);
+  if (rosterTrainerEmails === null) {
+    return { error: 'Sheet "' + ROSTER_SHEET_NAME + '" not found' };
+  }
+
+  const managerEmailsNorm = MANAGER_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
+  const hasTrainerAccess =
+    rosterTrainerEmails.has(email) || managerEmailsNorm.indexOf(email) !== -1;
+  if (!hasTrainerAccess) return { noAccess: true };
 
   const now = new Date();
   const bounds = getPeriodBounds_(now, TZ);
@@ -146,21 +184,13 @@ function getDashboardDataForEmail_(email) {
 
   const lastRow = sh.getLastRow();
   if (lastRow < 2) {
-    return { noAccess: true };
+    const leaderboard = buildLeaderboard_([], email);
+    return buildResponse_(email, 0, 0, periodRangeText, leaderboard, true);
   }
 
   // Pull only the 6 columns we use: G(7), H(8), I(9), J(10), L(12), AJ(36) — two ranges
   const valuesMain = sh.getRange(2, 7, lastRow, 12).getValues();   // cols G–L → indices 0–5
   const valuesError = sh.getRange(2, 36, lastRow, 36).getValues(); // col AJ
-
-  // Emails that appear in col H (any row) — grant access to pilot list + anyone in sheet
-  const sheetEmails = new Set();
-  for (let i = 0; i < valuesMain.length; i++) {
-    const e = String(valuesMain[i][1] || '').trim().toLowerCase();
-    if (e) sheetEmails.add(e);
-  }
-  const allowed = pilotAllowed.includes(email) || sheetEmails.has(email);
-  if (!allowed) return { noAccess: true };
 
   const numPeriods = MULTIPLIER_NUM_PERIODS;
   // Per-email valid pool: only tasks under the error ceiling count toward points and eligibility
@@ -171,8 +201,9 @@ function getDashboardDataForEmail_(email) {
 
   for (let i = 0; i < valuesMain.length; i++) {
     const main = valuesMain[i];
-    const rowEmail = String(main[1] || '').trim().toLowerCase(); // col H
+    const rowEmail = normalizeEmail_(main[1]); // col H — match Active Roster Col A
     if (!rowEmail) continue;
+    if (!rosterTrainerEmails.has(rowEmail)) continue;
 
     const ts = main[0]; // col G
     if (!(ts instanceof Date)) continue;
@@ -219,18 +250,20 @@ function getDashboardDataForEmail_(email) {
     }
   }
 
-  const periodPoints = periodTotalsByEmail[email] || 0;
-  const multiPeriodTotalPoints = multiPeriodPointsByEmail[email] || 0;
+  const onTrainerRoster = rosterTrainerEmails.has(email);
+  const periodPoints = onTrainerRoster ? (periodTotalsByEmail[email] || 0) : 0;
+  const multiPeriodTotalPoints = onTrainerRoster ? (multiPeriodPointsByEmail[email] || 0) : 0;
   const multiPeriodAvg = multiPeriodTotalPoints / numPeriods;
-  const vC = validPoolC[email] || 0;
-  const vE = validPoolE[email] || 0;
-  const qualityEligible = (vC > 8 && vE <= 0.125 * vC) || (vC <= 8 && vE <= 1);
+  const vC = onTrainerRoster ? (validPoolC[email] || 0) : 0;
+  const vE = onTrainerRoster ? (validPoolE[email] || 0) : 0;
+  const qualityEligible =
+    onTrainerRoster && ((vC > 8 && vE <= 0.125 * vC) || (vC <= 8 && vE <= 1));
 
   const fromSheet = Object.keys(periodTotalsByEmail).map(e => ({
     email: e,
     weeklyCompletions: periodTotalsByEmail[e] || 0
   }));
-  const allAccessEmails = [...new Set([...pilotAllowed, ...sheetEmails])];
+  const allAccessEmails = [...new Set([...managerEmailsNorm, ...rosterTrainerEmails])];
   const accessOnlyNoData = allAccessEmails
     .filter(e => !(e in periodTotalsByEmail))
     .map(e => ({ email: e, weeklyCompletions: 0 }));
@@ -243,35 +276,39 @@ function getDashboardDataForEmail_(email) {
 
 
 /**
- * Load sheet once and build period/multi-period aggregates for current + last 2 periods (manager report).
+ * Manager CSV: allEmails = MANAGER_EMAILS ∪ Active Roster Trainer only (no extra sheet-only emails).
  * Returns { allEmails, periods: [{ periodRangeText, periodTotalsByEmail, multiPeriodPointsByEmail, validPoolC, validPoolE }] }.
  */
 function getAllAgentsDataForReport_() {
-  const pilotAllowed = PILOT_ACCESS_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
-
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) return null;
+
+  const rosterTrainerEmails = getActiveRosterTrainerEmails_(ss);
+  if (rosterTrainerEmails === null) return null;
+
+  const managerEmailsNorm = MANAGER_EMAILS.map(e => normalizeEmail_(e)).filter(Boolean);
 
   const now = new Date();
   const currentPeriodIndex = getPeriodIndex_(now, TZ);
 
   const lastRow = sh.getLastRow();
   if (lastRow < 2) {
-    const periods = buildReportPeriodsTrainer_([], currentPeriodIndex, pilotAllowed);
-    return { allEmails: [...pilotAllowed], periods };
+    const periods = buildReportPeriodsTrainer_([], currentPeriodIndex);
+    const allEmails = [...new Set([...managerEmailsNorm, ...rosterTrainerEmails])];
+    return { allEmails, periods };
   }
 
   const valuesMain = sh.getRange(2, 7, lastRow, 12).getValues();
   const valuesError = sh.getRange(2, 36, lastRow, 36).getValues();
 
-  const sheetEmails = new Set();
   const parsedRows = [];
 
   for (let i = 0; i < valuesMain.length; i++) {
     const main = valuesMain[i];
-    const rowEmail = String(main[1] || '').trim().toLowerCase();
+    const rowEmail = normalizeEmail_(main[1]);
     if (!rowEmail) continue;
+    if (!rosterTrainerEmails.has(rowEmail)) continue;
 
     const ts = main[0];
     if (!(ts instanceof Date)) continue;
@@ -296,17 +333,16 @@ function getAllAgentsDataForReport_() {
     const errVal = isFinite(Number(valuesError[i][0])) ? Number(valuesError[i][0]) : 0;
     const dayStr = toDateStrInTz_(ts, TZ);
 
-    sheetEmails.add(rowEmail);
     parsedRows.push({ email: rowEmail, dayStr, ts: ts.getTime(), pts, c, errVal });
   }
 
-  const allEmails = [...new Set([...pilotAllowed, ...sheetEmails])];
-  const periods = buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex, pilotAllowed);
+  const allEmails = [...new Set([...managerEmailsNorm, ...rosterTrainerEmails])];
+  const periods = buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex);
   return { allEmails, periods };
 }
 
 /** Build report data for current and last 2 periods (Trainer). */
-function buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex, pilotAllowed) {
+function buildReportPeriodsTrainer_(parsedRows, currentPeriodIndex) {
   const numPeriods = MULTIPLIER_NUM_PERIODS;
   const reportIndexes = [];
   for (let off = -2; off <= 0; off++) {

@@ -692,14 +692,26 @@
         var unitsEl = document.getElementById('pointsBreakdownUnits');
         var totalEl = document.getElementById('pointsBreakdownTotal');
         if (unitsEl && totalEl && breakdown && breakdown.period) {
-          var period = breakdown.period;
-          var batchSums = [
-            { batch: 'Eval', p: (Number(period.Eval_M) || 0) + (Number(period.Eval_Q) || 0) },
-            { batch: 'RSHF', p: (Number(period.RSHF_M) || 0) + (Number(period.RSHF_Q) || 0) + (Number(period.RSHF_AJ) || 0) },
-            { batch: 'HLRM', p: (Number(period.HLRM_M) || 0) + (Number(period.HLRM_Q) || 0) + (Number(period.HLRM_AJ) || 0) },
-            { batch: 'Categories', p: (Number(period.Categories_M) || 0) + (Number(period.Categories_Q) || 0) + (Number(period.Categories_AJ) || 0) },
-            { batch: 'Multi-out', p: (Number(period.Out_R) || 0) + (Number(period.Out_AK) || 0) + (Number(period.Out_N_only) || 0) + (Number(period.Out_N_and_AK) || 0) }
-          ];
+          var batchSums;
+          if (breakdown.combinedBatchPeriod) {
+            var cb = breakdown.combinedBatchPeriod;
+            batchSums = [
+              { batch: 'Eval', p: Number(cb.Eval) || 0 },
+              { batch: 'RSHF', p: Number(cb.RSHF) || 0 },
+              { batch: 'HLRM', p: Number(cb.HLRM) || 0 },
+              { batch: 'Categories', p: Number(cb.Categories) || 0 },
+              { batch: 'Multi-out', p: Number(cb.Multi_out) || 0 }
+            ];
+          } else {
+            var period = breakdown.period;
+            batchSums = [
+              { batch: 'Eval', p: (Number(period.Eval_M) || 0) + (Number(period.Eval_Q) || 0) },
+              { batch: 'RSHF', p: (Number(period.RSHF_M) || 0) + (Number(period.RSHF_Q) || 0) + (Number(period.RSHF_AJ) || 0) },
+              { batch: 'HLRM', p: (Number(period.HLRM_M) || 0) + (Number(period.HLRM_Q) || 0) + (Number(period.HLRM_AJ) || 0) },
+              { batch: 'Categories', p: (Number(period.Categories_M) || 0) + (Number(period.Categories_Q) || 0) + (Number(period.Categories_AJ) || 0) },
+              { batch: 'Multi-out', p: (Number(period.Out_R) || 0) + (Number(period.Out_AK) || 0) + (Number(period.Out_N_only) || 0) + (Number(period.Out_N_and_AK) || 0) }
+            ];
+          }
           var units = batchSums.filter(function(u) { return u.p > 0; });
           var sumP = 0;
           var maxP = -1;
@@ -722,7 +734,15 @@
           });
           unitsEl.innerHTML = html;
           totalEl.style.setProperty('--lastDelay', lastDelay + 'ms');
-          totalEl.innerHTML = '<span class="breakdownTotalLabel">Total</span><span class="breakdownTotalVal">' + sumP.toLocaleString() + '</span>';
+          var grandTotal = sumP;
+          if (breakdown.combinedBatchPeriod) {
+            var c = breakdown.combinedBatchPeriod;
+            grandTotal = (Number(c.Eval) || 0) + (Number(c.RSHF) || 0) + (Number(c.HLRM) || 0) + (Number(c.Categories) || 0) + (Number(c.Multi_out) || 0);
+          } else {
+            var trainPts = Number(data.trainingPointsPeriod) || 0;
+            grandTotal = sumP + trainPts;
+          }
+          totalEl.innerHTML = '<span class="breakdownTotalLabel">Total</span><span class="breakdownTotalVal">' + grandTotal.toLocaleString() + '</span>';
         } else if (unitsEl && totalEl) {
           unitsEl.innerHTML = '';
           totalEl.innerHTML = '';
