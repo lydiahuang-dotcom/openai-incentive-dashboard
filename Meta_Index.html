@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --muted: #9bb0d1;
+        --text: #eaf0ff;
+        --border: rgba(255, 255, 255, 0.08);
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        --warn: #ffb86c;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, var(--bg), #070c16);
+        color: var(--text);
+        padding: 20px;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .title {
+        font-size: 20px;
+        font-weight: 700;
+      }
+      button {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-weight: 650;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      .card h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: var(--muted);
+        font-weight: 650;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 10px 0;
+        line-height: 1.4;
+      }
+      .summaryGrid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      @media (max-width: 900px) {
+        .summaryGrid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      .statCard {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px 16px;
+        text-align: center;
+        box-shadow: var(--shadow);
+      }
+      .statCard .label {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 8px;
+        line-height: 1.35;
+      }
+      .statCard .val {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        line-height: 1.1;
+      }
+      table.data {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      table.data th,
+      table.data td {
+        border-bottom: 1px solid var(--border);
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: middle;
+      }
+      table.data th {
+        color: var(--muted);
+        font-weight: 650;
+      }
+      tr.warn td {
+        color: var(--warn);
+      }
+      tr.ok td {
+        color: rgba(234, 240, 255, 0.92);
+      }
+      tr.manual-matched {
+        display: none;
+      }
+      .cc-missing-field {
+        outline: 2px solid var(--warn);
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
+      tr.cc-row-missing td {
+        background: rgba(255, 184, 108, 0.08);
+      }
+      body.show-matched-manual tr.manual-matched {
+        display: table-row;
+      }
+      .num {
+        text-align: right !important;
+        font-variant-numeric: tabular-nums;
+      }
+      input[type='text'],
+      input[type='number'],
+      select {
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 6px 8px;
+        font-size: 12px;
+        max-width: 100%;
+      }
+      select {
+        min-width: 200px;
+      }
+      .chartRow {
+        margin-bottom: 14px;
+      }
+      .chartWrap {
+        min-height: 440px;
+        position: relative;
+      }
+      #metaErrorBlock {
+        margin: 16px 0;
+        padding: 14px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 100, 100, 0.4);
+        background: rgba(255, 100, 100, 0.1);
+        color: #ffb0b0;
+        font-size: 13px;
+      }
+      .payBig {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .manualToggle {
+        margin: 10px 0 12px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .manualToggle input {
+        margin-right: 8px;
+      }
+      .meta-tabs {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+      .meta-tab {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 10px;
+        padding: 8px 14px;
+        cursor: pointer;
+        font-weight: 650;
+        font-size: 13px;
+      }
+      .meta-tab:hover {
+        background: rgba(255, 255, 255, 0.09);
+      }
+      .meta-tab.active {
+        color: var(--text);
+        background: rgba(122, 167, 255, 0.14);
+        border-color: rgba(122, 167, 255, 0.4);
+      }
+      .header-main {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container" id="app">
+      <div class="header">
+        <div class="header-main">
+          <div class="title">Hubstaff Meta</div>
+          <div class="meta-tabs" role="tablist">
+            <button
+              type="button"
+              class="meta-tab active"
+              id="tabBtnAgent"
+              role="tab"
+              aria-selected="true"
+              onclick="switchMetaTab('agent')"
+            >
+              Agent pay
+            </button>
+            <button
+              type="button"
+              class="meta-tab"
+              id="tabBtnClient"
+              role="tab"
+              aria-selected="false"
+              onclick="switchMetaTab('client')"
+            >
+              Client charge
+            </button>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: flex-start">
+          <button type="button" id="refreshBtn" onclick="refreshActiveMetaTab()">Refresh</button>
+        </div>
+      </div>
+      <div id="panelAgentPay" class="meta-tab-panel">
+        <div id="metaErrorBlock" style="display: none"></div>
+        <div id="mainContent" style="display: none"></div>
+      </div>
+      <div id="panelClientCharge" class="meta-tab-panel" style="display: none">
+        <div id="ccErrorBlock" style="display: none"></div>
+        <div id="ccMainContent" style="display: none"></div>
+      </div>
+    </div>
+
+    <script>
+      var _metaPayload = null;
+      var _ccPayload = null;
+      var _activeMetaTab = 'agent';
+      /** Midnight Blue, Electric Blue, Hypercitrus, Soft Sand, Sky Blue, Laser Pink, Pomegranate */
+      var META_CHART_PALETTE = [
+        '#24246E',
+        '#0C76FE',
+        '#DCF58F',
+        '#E3CFA9',
+        '#BEDAEA',
+        '#E37DE1',
+        '#65211A'
+      ];
+      var CC_CHART_PALETTE = META_CHART_PALETTE;
+      /** Stacked geo chart: Low / Mid / High / USA / Custom ($/hr) / Other (manual unrouted). */
+      var CC_GEO_STACK_COLORS = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#DCF58F', '#6B7280'];
+
+      function switchMetaTab(tab) {
+        _activeMetaTab = tab === 'client' ? 'client' : 'agent';
+        var pa = document.getElementById('panelAgentPay');
+        var pc = document.getElementById('panelClientCharge');
+        var ba = document.getElementById('tabBtnAgent');
+        var bc = document.getElementById('tabBtnClient');
+        if (_activeMetaTab === 'agent') {
+          hideCcError();
+          if (pa) pa.style.display = '';
+          if (pc) pc.style.display = 'none';
+          if (ba) {
+            ba.classList.add('active');
+            ba.setAttribute('aria-selected', 'true');
+          }
+          if (bc) {
+            bc.classList.remove('active');
+            bc.setAttribute('aria-selected', 'false');
+          }
+        } else {
+          hideMetaError();
+          if (pa) pa.style.display = 'none';
+          if (pc) pc.style.display = '';
+          if (bc) {
+            bc.classList.add('active');
+            bc.setAttribute('aria-selected', 'true');
+          }
+          if (ba) {
+            ba.classList.remove('active');
+            ba.setAttribute('aria-selected', 'false');
+          }
+          if (!_ccPayload) loadClientCharge();
+          else {
+            setTimeout(function () {
+              if (_ccPayload) ccDrawBillablePie();
+            }, 150);
+          }
+        }
+      }
+
+      function refreshActiveMetaTab() {
+        if (_activeMetaTab === 'client') loadClientCharge();
+        else loadMeta();
+      }
+
+      function showMetaError(msg) {
+        var el = document.getElementById('metaErrorBlock');
+        if (!el) return;
+        el.style.display = 'block';
+        el.textContent = 'Error: ' + msg;
+      }
+      function hideMetaError() {
+        var el = document.getElementById('metaErrorBlock');
+        if (el) el.style.display = 'none';
+      }
+
+      function showCcError(msg) {
+        var el = document.getElementById('ccErrorBlock');
+        if (!el) return;
+        el.style.display = 'block';
+        el.textContent = 'Error: ' + msg;
+      }
+      function hideCcError() {
+        var el = document.getElementById('ccErrorBlock');
+        if (el) el.style.display = 'none';
+      }
+
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      /** Hours in post-calculate Issues tables (Agent pay + Client charge). */
+      function fmtHoursIssue2_(v) {
+        var n = Number(v);
+        if (isNaN(n)) n = 0;
+        return esc((Math.round(n * 100) / 100).toFixed(2));
+      }
+
+      function hashId(s) {
+        var t = String(s);
+        var h = 0;
+        for (var i = 0; i < t.length; i++) h = (h << 5) - h + t.charCodeAt(i);
+        return 'h' + (h >>> 0).toString(16);
+      }
+
+      function metaWireRateSelects() {
+        var data = _metaPayload;
+        if (!data || !data.uniqueProjects) return;
+        data.uniqueProjects.forEach(function (proj) {
+          var sid = 'rate_' + hashId(proj);
+          var cid = 'cust_' + hashId(proj);
+          var sel = document.getElementById(sid);
+          var cell = document.getElementById('custcell_' + hashId(proj));
+          var inp = document.getElementById(cid);
+          if (!sel || !cell) return;
+          function sync() {
+            var rt = parseInt(sel.value, 10);
+            cell.style.display = rt === 6 ? '' : 'none';
+            if (inp && rt !== 6) inp.value = '';
+          }
+          function onAnyChange() {
+            clearTableMissingHighlights();
+          }
+          sel.addEventListener('change', function () {
+            sync();
+            onAnyChange();
+          });
+          if (inp) {
+            inp.addEventListener('input', onAnyChange);
+            inp.addEventListener('change', onAnyChange);
+          }
+          sync();
+        });
+      }
+
+      function metaDrawCharts(data) {
+        var pieEl = document.getElementById('chartPie');
+        var barEl = document.getElementById('chartBar');
+        if (!pieEl || !barEl || !data.subProjectTotals || !data.subProjectTotals.length) {
+          if (pieEl) pieEl.innerHTML = '<p class="hint">No sub-project data for charts.</p>';
+          return;
+        }
+        if (typeof google === 'undefined' || !google.charts) {
+          pieEl.innerHTML = '<p class="hint">Google Charts could not load (check network / CSP).</p>';
+          barEl.innerHTML = '';
+          return;
+        }
+
+        google.charts.load('current', { packages: ['corechart'] });
+        google.charts.setOnLoadCallback(function () {
+          var subAgg = {};
+          data.subProjectTotals.forEach(function (r) {
+            var k =
+              r.subProject != null && r.subProject !== ''
+                ? r.subProject
+                : r.projectName;
+            subAgg[k] = (subAgg[k] || 0) + r.hours;
+          });
+          var pieRows = [['Sub-project', 'Hours']];
+          Object.keys(subAgg)
+            .sort()
+            .forEach(function (k) {
+              pieRows.push([k, subAgg[k]]);
+            });
+
+          if (pieRows.length <= 1) {
+            pieEl.innerHTML = '<p class="hint">No hours to chart.</p>';
+          } else {
+            var pieData = google.visualization.arrayToDataTable(pieRows);
+            var pieChart = new google.visualization.PieChart(pieEl);
+            pieChart.draw(pieData, {
+              title: 'Hours by sub-project',
+              pieHole: 0.35,
+              sliceVisibilityThreshold: 0,
+              backgroundColor: 'transparent',
+              chartArea: { left: 8, top: 44, width: '92%', height: '78%' },
+              legend: { position: 'right', textStyle: { color: '#9bb0d1', fontSize: 11 } },
+              titleTextStyle: { color: '#eaf0ff', fontSize: 15 },
+              colors: META_CHART_PALETTE
+            });
+          }
+
+          var subOrder = [];
+          var seen = {};
+          data.subProjectTotals.forEach(function (r) {
+            var k =
+              r.subProject != null && r.subProject !== ''
+                ? r.subProject
+                : r.projectName;
+            if (!seen[k]) {
+              seen[k] = true;
+              subOrder.push(k);
+            }
+          });
+          subOrder.sort();
+
+          if (!subOrder.length) {
+            barEl.innerHTML = '<p class="hint">No hours to chart.</p>';
+          } else {
+            var projects = (data.projectTotals || []).map(function (p) {
+              return p.projectName;
+            });
+            var chartTable = new google.visualization.DataTable();
+            chartTable.addColumn('string', 'Project');
+            subOrder.forEach(function (s) {
+              chartTable.addColumn('number', s);
+            });
+            projects.forEach(function (proj) {
+              var row = [proj];
+              subOrder.forEach(function (sub) {
+                var h = 0;
+                data.subProjectTotals.forEach(function (r) {
+                  var rs =
+                    r.subProject != null && r.subProject !== ''
+                      ? r.subProject
+                      : r.projectName;
+                  if (r.projectName === proj && rs === sub) h += r.hours;
+                });
+                row.push(h);
+              });
+              chartTable.addRow(row);
+            });
+
+            var maxCatLen = projects.reduce(function (m, p) {
+              return Math.max(m, String(p).length);
+            }, 0);
+            var leftPx = Math.min(480, Math.max(160, Math.round(maxCatLen * 6.5 + 36)));
+            var chartH = Math.max(440, projects.length * 40 + 200);
+            var chartW = barEl.offsetWidth || (barEl.parentElement && barEl.parentElement.offsetWidth) || 900;
+            var caW = Math.max(200, chartW - leftPx - 32);
+            var caH = Math.max(180, chartH - 150);
+
+            var barChart = new google.visualization.BarChart(barEl);
+            barChart.draw(chartTable, {
+              isStacked: true,
+              title: 'Hours per project (stacked by sub-project)',
+              backgroundColor: 'transparent',
+              colors: META_CHART_PALETTE,
+              legend: { position: 'top', maxLines: 5, textStyle: { color: '#9bb0d1', fontSize: 11 } },
+              titleTextStyle: { color: '#eaf0ff', fontSize: 15 },
+              width: chartW,
+              height: chartH,
+              chartArea: { left: leftPx, top: 88, width: caW, height: caH },
+              hAxis: {
+                title: 'Hours',
+                minValue: 0,
+                textStyle: { color: '#9bb0d1' },
+                gridlines: { color: '#333' }
+              },
+              vAxis: {
+                textStyle: { color: '#9bb0d1', fontSize: 11 }
+              }
+            });
+          }
+        });
+      }
+
+      function onManualShowAllChange() {
+        var cb = document.getElementById('manualShowAll');
+        if (cb && cb.checked) document.body.classList.add('show-matched-manual');
+        else document.body.classList.remove('show-matched-manual');
+      }
+
+      function renderMeta(data) {
+        _metaPayload = data;
+        document.body.classList.remove('show-matched-manual');
+        var root = document.getElementById('mainContent');
+        if (!root) return;
+
+        var html = '';
+
+        html += '<div class="summaryGrid">';
+        html +=
+          '<div class="statCard"><div class="label">Total Hubstaff rows read</div><div class="val">' +
+          esc(data.hubstaffDataRows) +
+          '</div></div>';
+        html +=
+          '<div class="statCard"><div class="label">Unique projects</div><div class="val">' +
+          esc((data.uniqueProjects || []).length) +
+          '</div></div>';
+        html +=
+          '<div class="statCard"><div class="label">Unique agents</div><div class="val">' +
+          esc(data.uniqueAgents != null ? data.uniqueAgents : '—') +
+          '</div></div>';
+        html +=
+          '<div class="statCard"><div class="label">Unique agents with country found</div><div class="val">' +
+          esc(data.uniqueAgentsWithCountry != null ? data.uniqueAgentsWithCountry : '—') +
+          '</div></div>';
+        html += '</div>';
+
+        html += '<div class="card"><h3>1 — Hours by project &amp; rate card</h3>';
+        html +=
+          '<p class="hint">Choose a rate card for <b>every</b> project. If you pick Custom (6), enter a valid $/hr.';
+        html +=
+          '<table class="data"><thead><tr><th>Project</th><th class="num">Hours</th><th>Rate card</th><th>Custom $/hr</th></tr></thead><tbody>';
+        (data.uniqueProjects || []).forEach(function (proj) {
+          var hrs = 0;
+          (data.projectTotals || []).forEach(function (p) {
+            if (p.projectName === proj) hrs = p.hours;
+          });
+          var sid = 'rate_' + hashId(proj);
+          var cid = 'cust_' + hashId(proj);
+          var cidCell = 'custcell_' + hashId(proj);
+          var rowId = 'metarow_' + hashId(proj);
+          html += '<tr id="' + esc(rowId) + '">';
+          html += '<td>' + esc(proj) + '</td>';
+          html += '<td class="num">' + esc(hrs) + '</td>';
+          html += '<td><select id="' + esc(sid) + '">';
+          html += '<option value="">— select —</option>';
+          (data.rateLabels || []).forEach(function (label, idx) {
+            if (!label || idx === 0) return;
+            html += '<option value="' + idx + '">' + esc(idx + '. ' + label) + '</option>';
+          });
+          html += '</select></td>';
+          html +=
+            '<td id="' +
+            esc(cidCell) +
+            '" style="display:none"><input type="number" step="0.01" min="0" id="' +
+            esc(cid) +
+            '" placeholder="e.g. 18.50" /></td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html += '<div class="card"><h3>2 — Hours by project &amp; sub-project</h3>';
+        html +=
+          '<table class="data"><thead><tr><th>Project</th><th>Sub</th><th class="num">Hours</th></tr></thead><tbody>';
+        (data.subProjectTotals || []).forEach(function (p) {
+          html += '<tr><td>' + esc(p.projectName) + '</td><td>' + esc(p.subProject) + '</td><td class="num">' + esc(p.hours) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html += '<div class="card chartRow"><h3>Chart — hours by sub-project</h3><div id="chartPie" class="chartWrap"></div></div>';
+        html += '<div class="card chartRow"><h3>Chart — hours stacked by project</h3><div id="chartBar" class="chartWrap"></div></div>';
+
+        html += '<div class="card"><h3>3 — Manual hourly overrides (by email)</h3>';
+        html +=
+          '<p class="hint">Add optional $/hr for agents with no country found in the expert list. Check the box to show matched experts if you need an override.</p>';
+        html +=
+          '<div class="manualToggle"><label><input type="checkbox" id="manualShowAll" onchange="onManualShowAllChange()" /> Show matched experts (optional overrides)</label></div>';
+        html += '<table class="data"><thead><tr><th>Email</th><th>Status</th><th>Manual $/hr</th></tr></thead><tbody>';
+        (data.expertResolution || []).forEach(function (row) {
+          var iid = 'man_' + hashId(row.email);
+          var trClass = row.status === 'no_expert_row' ? 'warn' : 'ok manual-matched';
+          html += '<tr class="' + trClass + '">';
+          html += '<td>' + esc(row.email) + '</td>';
+          html += '<td>' + esc(row.status) + '</td>';
+          html += '<td><input type="number" step="0.01" min="0" id="' + esc(iid) + '" data-email="' + esc(row.email) + '" placeholder="optional" /></td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html += '<div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+        html += '<button type="button" id="calcBtn" onclick="runMetaCalc()">Calculate pay</button>';
+        html += '</div>';
+
+        html += '<div id="calcOut"></div>';
+
+        root.innerHTML = html;
+        root.style.display = 'block';
+
+        metaWireRateSelects();
+        setTimeout(function () {
+          metaDrawCharts(data);
+        }, 0);
+      }
+
+      function collectProjectRates() {
+        var data = _metaPayload;
+        var out = {};
+        (data.uniqueProjects || []).forEach(function (proj) {
+          var sid = 'rate_' + hashId(proj);
+          var cid = 'cust_' + hashId(proj);
+          var sel = document.getElementById(sid);
+          var cin = document.getElementById(cid);
+          if (!sel) return;
+          var rt = parseInt(sel.value, 10);
+          if (!rt) return;
+          var o = { rateType: rt };
+          if (rt === 6 && cin && cin.value !== '') {
+            o.customHourly = parseFloat(cin.value);
+          }
+          out[proj] = o;
+        });
+        return out;
+      }
+
+      function collectManualRates() {
+        var out = {};
+        var data = _metaPayload;
+        (data.expertResolution || []).forEach(function (row) {
+          var iid = 'man_' + hashId(row.email);
+          var inp = document.getElementById(iid);
+          if (!inp || inp.value === '') return;
+          var v = parseFloat(inp.value);
+          if (!isNaN(v) && v >= 0) out[row.email] = { hourlyRate: v };
+        });
+        return out;
+      }
+
+      function runMetaCalc() {
+        hideMetaError();
+        clearTableMissingHighlights();
+        var check = validateMetaRateTable_();
+        if (!check.ok) {
+          showMetaError(check.message);
+          applyTableMissingHighlights(check.missing);
+          return;
+        }
+        var btn = document.getElementById('calcBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Calculating…';
+        }
+        var projectRates = collectProjectRates();
+        var manualAgentRates = collectManualRates();
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Calculate pay';
+            }
+            if (!res) return;
+            if (res.error) {
+              showMetaError(res.error);
+              return;
+            }
+            clearTableMissingHighlights();
+            renderCalcOut(res);
+          })
+          .withFailureHandler(function (err) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Calculate pay';
+            }
+            var msg = err && (err.message || err.toString) ? err.message || err.toString() : 'Request failed.';
+            showMetaError(msg);
+          })
+          .metaCalculatePay(projectRates, manualAgentRates);
+      }
+
+      function renderCalcOut(res) {
+        var el = document.getElementById('calcOut');
+        if (!el) return;
+        var html = '';
+        html += '<div class="card"><h3>Pay summary</h3>';
+        html += '<p class="payBig">Total: $' + esc(res.totalPay) + '</p></div>';
+
+        html += '<div class="card"><h3>Per-project totals</h3>';
+        html += '<table class="data"><thead><tr><th>Project</th><th>Rate type</th><th class="num">Pay ($)</th></tr></thead><tbody>';
+        (res.byProject || []).forEach(function (p) {
+          html += '<tr><td>' + esc(p.projectName) + '</td><td>' + esc(p.rateLabel) + '</td><td class="num">' + esc(p.pay) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html += '<div class="card"><h3>Per-agent totals</h3>';
+        html += '<table class="data"><thead><tr>';
+        html +=
+          '<th>Email</th><th>Project</th><th class="num">Hours</th><th>Rate type</th><th class="num">$/hr</th><th class="num">Pay</th><th>Note</th>';
+        html += '</tr></thead><tbody>';
+        (function () {
+          var traces = res.traceRows || [];
+          var byEmail = {};
+          traces.forEach(function (r) {
+            var k = r.email != null ? String(r.email) : '';
+            if (!byEmail[k]) byEmail[k] = [];
+            byEmail[k].push(r);
+          });
+          var emails = Object.keys(byEmail).sort(function (a, b) {
+            return a.localeCompare(b);
+          });
+          emails.forEach(function (em) {
+            var list = byEmail[em].slice();
+            list.sort(function (a, b) {
+              return String(a.projectName || '').localeCompare(String(b.projectName || ''));
+            });
+            var n = list.length;
+            list.forEach(function (r, i) {
+              html += '<tr>';
+              if (i === 0) {
+                html += '<td rowspan="' + n + '">' + esc(em) + '</td>';
+              }
+              html += '<td>' + esc(r.projectName) + '</td>';
+              html += '<td class="num">' + esc(r.hours) + '</td>';
+              html += '<td>' + esc(r.rateTypeLabel != null ? r.rateTypeLabel : r.rateType) + '</td>';
+              html += '<td class="num">' + esc(r.hourlyRate) + '</td>';
+              html += '<td class="num">' + esc(r.pay) + '</td>';
+              html += '<td>' + esc(r.note) + '</td>';
+              html += '</tr>';
+            });
+          });
+        })();
+        html += '</tbody></table></div>';
+
+        html += '<div class="card"><h3>Issues</h3>';
+        if (!(res.issues || []).length) {
+          html += '<p class="hint">None.</p>';
+        } else {
+          html += '<table class="data"><thead><tr><th>Project</th><th>Email</th><th class="num">Hours</th><th>Reason</th></tr></thead><tbody>';
+          (res.issues || []).forEach(function (r) {
+            html += '<tr class="warn">';
+            html += '<td>' + esc(r.projectName) + '</td>';
+            html += '<td>' + esc(r.email) + '</td>';
+            html += '<td class="num">' + fmtHoursIssue2_(r.hours) + '</td>';
+            html += '<td>' + esc(r.reason) + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+        }
+        html += '</div>';
+
+        el.innerHTML = html;
+      }
+
+      function showNoAccessMeta(data) {
+        var root = document.getElementById('mainContent');
+        if (!root) return;
+        root.style.display = 'block';
+        var hint = '';
+        if (data && data.noAccessReason === 'no_session_email') {
+          hint =
+            '<p class="hint">Google did not provide an email for this session. Use one Google account in the browser (check the profile icon), complete any sign-in prompts, or try a private/incognito window with only your work account.</p>';
+        } else if (data && data.noAccessReason === 'not_on_list' && data.recognizedEmail) {
+          hint =
+            '<p class="hint">Signed in as <b>' +
+            esc(data.recognizedEmail) +
+            '</b>. Add this exact address to <code>META_MANAGER_EMAILS</code> in <code>Meta_Code.js</code> and deploy a new version.</p>';
+        } else {
+          hint =
+            '<p class="hint">This tool is limited to emails in <code>META_MANAGER_EMAILS</code> in <code>Meta_Code.js</code>.</p>';
+        }
+        root.innerHTML = '<div class="card"><h3>Access</h3>' + hint + '</div>';
+      }
+
+      /** Shared with Agent pay + Client charge (same CSS: .cc-missing-field, tr.cc-row-missing). */
+      function clearTableMissingHighlights() {
+        document.querySelectorAll('.cc-missing-field').forEach(function (n) {
+          n.classList.remove('cc-missing-field');
+        });
+        document.querySelectorAll('tr.cc-row-missing').forEach(function (n) {
+          n.classList.remove('cc-row-missing');
+        });
+      }
+
+      function validateMetaRateTable_() {
+        var data = _metaPayload;
+        var missing = [];
+        (data.uniqueProjects || []).forEach(function (proj) {
+          var hid = hashId(proj);
+          var trId = 'metarow_' + hid;
+          var sid = 'rate_' + hid;
+          var cid = 'cust_' + hid;
+          var sel = document.getElementById(sid);
+          var rt = sel ? parseInt(sel.value, 10) : NaN;
+          if (!sel || sel.value === '' || isNaN(rt) || rt < 1 || rt > 6) {
+            if (sel) missing.push({ id: sid, trId: trId });
+            return;
+          }
+          if (rt === 6) {
+            var cin = document.getElementById(cid);
+            var v = cin ? String(cin.value || '').trim() : '';
+            var num = parseFloat(v);
+            if (v === '' || isNaN(num) || num < 0) {
+              if (cin) missing.push({ id: cid, trId: trId });
+            }
+          }
+        });
+        if (missing.length) {
+          return {
+            ok: false,
+            message:
+              'Complete section 1: choose a rate card for every project. If you pick Custom (6), enter a valid $/hr.',
+            missing: missing
+          };
+        }
+        return { ok: true };
+      }
+
+      function validateCcTableComplete_() {
+        var data = _ccPayload;
+        var missing = [];
+        (data.subProjectTotals || []).forEach(function (row) {
+          var hid = hashId(row.rowKey);
+          var trId = 'cctr_' + hid;
+          var billEl = document.getElementById('ccb_' + hid);
+          var bill = billEl ? String(billEl.value || '').trim() : '';
+          if (!bill) {
+            if (billEl) missing.push({ id: 'ccb_' + hid, trId: trId });
+            return;
+          }
+          if (bill === 'nonbillable') return;
+          var sel = document.getElementById('cctype_' + hid);
+          var ctype = sel ? String(sel.value || '').trim() : '';
+          if (!ctype) {
+            if (sel) missing.push({ id: 'cctype_' + hid, trId: trId });
+            return;
+          }
+          if (bill === 'discount' && ctype !== 'custom') {
+            if (sel) missing.push({ id: 'cctype_' + hid, trId: trId });
+            return;
+          }
+          if (ctype === 'custom') {
+            var cin = document.getElementById('cccust_' + hid);
+            var v = cin ? String(cin.value || '').trim() : '';
+            var num = parseFloat(v);
+            if (v === '' || isNaN(num) || num < 0) {
+              if (cin) missing.push({ id: 'cccust_' + hid, trId: trId });
+            }
+          }
+        });
+        if (missing.length) {
+          return {
+            ok: false,
+            message:
+              'Complete section 1 first: choose Billable, Non-billable, or Discount on every row. For Billable or Discount, pick a client rate; Custom and Discount require a valid $/hr.',
+            missing: missing
+          };
+        }
+        return { ok: true };
+      }
+
+      function applyTableMissingHighlights(missing) {
+        var scrolled = false;
+        missing.forEach(function (m) {
+          var el = document.getElementById(m.id);
+          if (el) el.classList.add('cc-missing-field');
+          if (m.trId) {
+            var tr = document.getElementById(m.trId);
+            if (tr) {
+              tr.classList.add('cc-row-missing');
+              if (!scrolled) {
+                tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                scrolled = true;
+              }
+            }
+          }
+        });
+      }
+
+      function syncCcRateUiForRow_(hid) {
+        var bill = document.getElementById('ccb_' + hid);
+        var b = bill ? String(bill.value || '').trim() : '';
+        var rateBox = document.getElementById('ccrateinner_' + hid);
+        var dash = document.getElementById('ccratedash_' + hid);
+        var sel = document.getElementById('cctype_' + hid);
+        var cell = document.getElementById('cccustcell_' + hid);
+        var inp = document.getElementById('cccust_' + hid);
+        var showRate = b === 'billable' || b === 'discount';
+        if (rateBox) rateBox.style.display = showRate ? '' : 'none';
+        if (dash) dash.style.display = showRate ? 'none' : '';
+        if (sel) {
+          var j;
+          for (j = 0; j < sel.options.length; j++) {
+            var op = sel.options[j];
+            var ov = op.value;
+            if (ov === '') {
+              op.disabled = false;
+              continue;
+            }
+            op.disabled = b === 'discount' && ov !== 'custom';
+          }
+          if (b === 'discount') sel.value = 'custom';
+        }
+        if (showRate && sel) {
+          var v = String(sel.value || '');
+          if (cell) cell.style.display = v === 'custom' ? '' : 'none';
+          if (v !== 'custom' && inp) inp.value = '';
+        } else {
+          if (cell) cell.style.display = 'none';
+          if (inp) inp.value = '';
+        }
+      }
+
+      function ccWireChargeSelects() {
+        var data = _ccPayload;
+        if (!data || !data.subProjectTotals) return;
+        data.subProjectTotals.forEach(function (row) {
+          var rk = row.rowKey;
+          var hid = hashId(rk);
+          var bill = document.getElementById('ccb_' + hid);
+          var sel = document.getElementById('cctype_' + hid);
+          function onAnyChange() {
+            clearTableMissingHighlights();
+          }
+          function onBillChange() {
+            syncCcRateUiForRow_(hid);
+            ccDrawBillablePie();
+            onAnyChange();
+          }
+          function onTierChange() {
+            syncCcRateUiForRow_(hid);
+            onAnyChange();
+          }
+          if (sel) {
+            sel.addEventListener('change', onTierChange);
+            sel.addEventListener('input', onAnyChange);
+          }
+          var cin = document.getElementById('cccust_' + hid);
+          if (cin) {
+            cin.addEventListener('input', onAnyChange);
+            cin.addEventListener('change', onAnyChange);
+          }
+          if (bill) {
+            bill.addEventListener('change', onBillChange);
+          }
+          syncCcRateUiForRow_(hid);
+        });
+      }
+
+      /** Sum hours from rows where Billable = billable, grouped by project name (for pie). */
+      function ccBillableHoursByProject_() {
+        var data = _ccPayload;
+        var proj = {};
+        if (!data || !data.subProjectTotals) return proj;
+        data.subProjectTotals.forEach(function (row) {
+          var hid = hashId(row.rowKey);
+          var bill = document.getElementById('ccb_' + hid);
+          var bv = bill ? String(bill.value || '').trim() : '';
+          if (bv !== 'billable' && bv !== 'discount') return;
+          var p = row.projectName || '(no project)';
+          var h = Number(row.hours) || 0;
+          proj[p] = (proj[p] || 0) + h;
+        });
+        return proj;
+      }
+
+      function ccDrawBillablePie() {
+        var el = document.getElementById('ccChartPie');
+        if (!el) return;
+        if (typeof google === 'undefined' || !google.charts) {
+          el.innerHTML = '<p class="hint">Google Charts could not load.</p>';
+          return;
+        }
+        var panel = document.getElementById('panelClientCharge');
+        var w = el.offsetWidth;
+        if (panel && panel.style.display === 'none') {
+          return;
+        }
+        if (w < 80) {
+          if (typeof ccDrawBillablePie._retries !== 'number') ccDrawBillablePie._retries = 0;
+          ccDrawBillablePie._retries++;
+          if (ccDrawBillablePie._retries > 30) {
+            ccDrawBillablePie._retries = 0;
+            el.innerHTML = '<p class="hint">Chart could not size — try Refresh or widen the window.</p>';
+            return;
+          }
+          setTimeout(function () {
+            ccDrawBillablePie();
+          }, 120);
+          return;
+        }
+        ccDrawBillablePie._retries = 0;
+
+        var proj = ccBillableHoursByProject_();
+        var keys = Object.keys(proj).sort();
+        if (!keys.length) {
+          el.innerHTML =
+            '<p class="hint">No billable hours yet — set <b>Billable</b> or <b>Discount</b> on one or more rows in the table above.</p>';
+          return;
+        }
+
+        google.charts.load('current', { packages: ['corechart'] });
+        google.charts.setOnLoadCallback(function () {
+          var rows = [['Project', 'Billable hours']];
+          var total = 0;
+          keys.forEach(function (k) {
+            var h = Math.round(proj[k] * 10000) / 10000;
+            if (h > 0) {
+              rows.push([k, h]);
+              total += h;
+            }
+          });
+          if (rows.length <= 1) {
+            el.innerHTML =
+              '<p class="hint">No billable hours yet — mark rows as <b>Billable</b> or <b>Discount</b> in the table.</p>';
+            return;
+          }
+          var t = google.visualization.arrayToDataTable(rows);
+          var chart = new google.visualization.PieChart(el);
+          var chartW = Math.max(320, el.offsetWidth);
+          var chartH = 420;
+          chart.draw(t, {
+            width: chartW,
+            height: chartH,
+            title: 'Billable hours by project (' + Math.round(total * 100) / 100 + ' h total)',
+            pieHole: 0.35,
+            sliceVisibilityThreshold: 0,
+            backgroundColor: 'transparent',
+            chartArea: { left: 8, top: 44, width: '88%', height: '70%' },
+            legend: { position: 'right', textStyle: { color: '#9bb0d1', fontSize: 11 } },
+            titleTextStyle: { color: '#eaf0ff', fontSize: 15 },
+            colors: CC_CHART_PALETTE
+          });
+        });
+      }
+
+      /** 100% horizontal stacked bars: share of each project’s charge by geo tier (rate card cols I–L). */
+      function ccDrawProjectGeoStack(res) {
+        var el = document.getElementById('ccChartGeoStack');
+        if (!el) return;
+        if (typeof google === 'undefined' || !google.charts) {
+          el.innerHTML = '<p class="hint">Google Charts could not load.</p>';
+          return;
+        }
+        var panel = document.getElementById('panelClientCharge');
+        if (panel && panel.style.display === 'none') return;
+        var w = el.offsetWidth;
+        if (w < 80) {
+          if (typeof ccDrawProjectGeoStack._retries !== 'number') ccDrawProjectGeoStack._retries = 0;
+          ccDrawProjectGeoStack._retries++;
+          if (ccDrawProjectGeoStack._retries > 30) {
+            ccDrawProjectGeoStack._retries = 0;
+            el.innerHTML = '<p class="hint">Chart could not size — try Refresh or widen the window.</p>';
+            return;
+          }
+          setTimeout(function () {
+            ccDrawProjectGeoStack(res);
+          }, 120);
+          return;
+        }
+        ccDrawProjectGeoStack._retries = 0;
+
+        var prows = (res && res.projectChargeRows) || [];
+        if (!prows.length) {
+          el.innerHTML =
+            '<p class="hint">No billable project charge to chart — run <b>Calculate client charge</b> first.</p>';
+          return;
+        }
+
+        google.charts.load('current', { packages: ['corechart'] });
+        google.charts.setOnLoadCallback(function () {
+          var showOther = prows.some(function (r) {
+            return (parseFloat(r.other) || 0) > 0;
+          });
+
+          var data = new google.visualization.DataTable();
+          data.addColumn('string', 'Project');
+          data.addColumn('number', 'Low cost geo');
+          data.addColumn('number', 'Mid cost geo');
+          data.addColumn('number', 'High cost geo');
+          data.addColumn('number', 'USA & Canada');
+          data.addColumn('number', 'Custom');
+          if (showOther) data.addColumn('number', 'Other (manual override)');
+
+          prows.forEach(function (r) {
+            var t = r.totalCharge || 0;
+            function pct(x) {
+              if (t <= 0) return 0;
+              return Math.round(((x || 0) / t) * 10000) / 100;
+            }
+            var row = [
+              r.projectName,
+              pct(r.lowCostGeo),
+              pct(r.midCostGeo),
+              pct(r.highCostGeo),
+              pct(r.usaCanada),
+              pct(r.customCharge != null ? r.customCharge : 0)
+            ];
+            if (showOther) row.push(pct(r.other));
+            data.addRow(row);
+          });
+
+          var stackColors = showOther ? CC_GEO_STACK_COLORS : CC_GEO_STACK_COLORS.slice(0, 5);
+
+          var chartH = Math.max(280, prows.length * 36 + 140);
+          var chartW = Math.max(480, el.offsetWidth);
+          var maxCatLen = prows.reduce(function (m, r) {
+            return Math.max(m, String(r.projectName || '').length);
+          }, 0);
+          var leftPx = Math.min(440, Math.max(120, Math.round(maxCatLen * 6.5 + 40)));
+
+          var chart = new google.visualization.BarChart(el);
+          chart.draw(data, {
+            isStacked: true,
+            title: 'Share of project charge by geo tier (each bar = 100%)',
+            backgroundColor: 'transparent',
+            colors: stackColors,
+            legend: { position: 'top', maxLines: 3, textStyle: { color: '#9bb0d1', fontSize: 11 } },
+            titleTextStyle: { color: '#eaf0ff', fontSize: 15 },
+            width: chartW,
+            height: chartH,
+            chartArea: {
+              left: leftPx,
+              top: 72,
+              width: Math.max(200, chartW - leftPx - 28),
+              height: Math.max(120, chartH - 120)
+            },
+            hAxis: {
+              minValue: 0,
+              maxValue: 100,
+              title: '% of project charge (0–100)',
+              textStyle: { color: '#9bb0d1' },
+              gridlines: { color: '#333' }
+            },
+            vAxis: { textStyle: { color: '#9bb0d1', fontSize: 11 } }
+          });
+        });
+      }
+
+      function onCcManualShowAllChange() {
+        var cb = document.getElementById('ccManualShowAll');
+        if (cb && cb.checked) document.body.classList.add('show-matched-manual');
+        else document.body.classList.remove('show-matched-manual');
+      }
+
+      function renderClientCharge(data) {
+        _ccPayload = data;
+        document.body.classList.remove('show-matched-manual');
+        var root = document.getElementById('ccMainContent');
+        if (!root) return;
+
+        var html = '';
+        html += '<div class="summaryGrid">';
+        html +=
+          '<div class="statCard"><div class="label">Total Hubstaff rows read</div><div class="val">' +
+          esc(data.hubstaffDataRows != null ? data.hubstaffDataRows : '—') +
+          '</div></div>';
+        html +=
+          '<div class="statCard"><div class="label">Unique projects</div><div class="val">' +
+          esc((data.uniqueProjects || []).length) +
+          '</div></div>';
+        html +=
+          '<div class="statCard"><div class="label">Unique agents</div><div class="val">' +
+          esc(data.uniqueAgents != null ? data.uniqueAgents : '—') +
+          '</div></div>';
+        html +=
+          '<div class="statCard"><div class="label">Unique agents with country found</div><div class="val">' +
+          esc(data.uniqueAgentsWithCountry != null ? data.uniqueAgentsWithCountry : '—') +
+          '</div></div>';
+        html += '</div>';
+
+        html += '<div class="card"><h3>1 — Hours by project</h3>';
+        html +=
+          '<p class="hint">Choose <b>Billable</b>, <b>Non-billable</b>, or <b>Discount</b> on every row. Billable/Discount rows need a client rate; <b>Discount</b> uses Custom $/hr only. Non-billable rows are excluded from charge.</p>';
+        html +=
+          '<table class="data"><thead><tr><th>Project</th><th>Sub</th><th class="num">Hours</th><th>Billable</th><th>Client rate</th></tr></thead><tbody>';
+        (data.subProjectTotals || []).forEach(function (row) {
+          var rk = row.rowKey;
+          var hid = hashId(rk);
+          html += '<tr id="cctr_' + esc(hid) + '">';
+          html += '<td>' + esc(row.projectName) + '</td>';
+          html += '<td>' + esc(row.subProject) + '</td>';
+          html += '<td class="num">' + esc(row.hours) + '</td>';
+          html += '<td><select id="ccb_' + esc(hid) + '">';
+          html += '<option value="">—</option>';
+          html += '<option value="billable">Billable</option>';
+          html += '<option value="nonbillable">Non-billable</option>';
+          html += '<option value="discount">Discount</option>';
+          html += '</select></td>';
+          html += '<td>';
+          html += '<span id="ccratedash_' + esc(hid) + '" class="muted">—</span>';
+          html += '<span id="ccrateinner_' + esc(hid) + '" style="display:none;white-space:nowrap">';
+          html += '<select id="cctype_' + esc(hid) + '">';
+          html += '<option value="">— tier —</option>';
+          (data.chargeOptions || []).forEach(function (opt) {
+            html += '<option value="' + esc(opt.id) + '">' + esc(opt.label) + '</option>';
+          });
+          html += '</select> ';
+          html +=
+            '<span id="cccustcell_' +
+            esc(hid) +
+            '" style="display:none"><input type="number" step="0.01" min="0" id="cccust_' +
+            esc(hid) +
+            '" placeholder="$/hr" style="width:5rem" /></span>';
+          html += '</span>';
+          html += '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html +=
+          '<div class="card chartRow"><h3>Billable hours by project</h3><p class="hint">Rows marked <b>Billable</b> or <b>Discount</b> are included. Change the table to update the chart.</p><div id="ccChartPie" class="chartWrap"></div></div>';
+
+        html += '<div class="card"><h3>2 — Manual hourly overrides (by email)</h3>';
+        html +=
+          '<div class="manualToggle"><label><input type="checkbox" id="ccManualShowAll" onchange="onCcManualShowAllChange()" /> Show matched experts</label></div>';
+        html += '<table class="data"><thead><tr><th>Email</th><th>Status</th><th>Manual $/hr</th></tr></thead><tbody>';
+        (data.expertResolution || []).forEach(function (row) {
+          var iid = 'ccman_' + hashId(row.email);
+          var trClass = row.status === 'no_expert_row' ? 'warn' : 'ok manual-matched';
+          html += '<tr class="' + trClass + '">';
+          html += '<td>' + esc(row.email) + '</td>';
+          html += '<td>' + esc(row.status) + '</td>';
+          html +=
+            '<td><input type="number" step="0.01" min="0" id="' + esc(iid) + '" placeholder="optional" /></td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+
+        html += '<div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+        html += '<button type="button" id="ccCalcBtn" onclick="runClientChargeCalc()">Calculate client charge</button>';
+        html += '</div>';
+        html += '<div id="ccCalcOut"></div>';
+
+        root.innerHTML = html;
+        root.style.display = 'block';
+        ccWireChargeSelects();
+        setTimeout(function () {
+          ccDrawBillablePie();
+        }, 100);
+      }
+
+      function collectClientChargeRowSettings() {
+        var data = _ccPayload;
+        var out = {};
+        (data.subProjectTotals || []).forEach(function (row) {
+          var rk = row.rowKey;
+          var hid = hashId(rk);
+          var billEl = document.getElementById('ccb_' + hid);
+          var bill = billEl ? String(billEl.value || '').trim() : '';
+          if (!bill) return;
+          var o = { billable: bill };
+          if (bill === 'billable' || bill === 'discount') {
+            var sel = document.getElementById('cctype_' + hid);
+            var cin = document.getElementById('cccust_' + hid);
+            if (!sel || !sel.value) return;
+            o.chargeType = sel.value;
+            if (sel.value === 'custom' && cin && cin.value !== '') {
+              o.customHourly = parseFloat(cin.value);
+            }
+          }
+          out[rk] = o;
+        });
+        return out;
+      }
+
+      function collectCcManualRates() {
+        var out = {};
+        var data = _ccPayload;
+        (data.expertResolution || []).forEach(function (row) {
+          var iid = 'ccman_' + hashId(row.email);
+          var inp = document.getElementById(iid);
+          if (!inp || inp.value === '') return;
+          var v = parseFloat(inp.value);
+          if (!isNaN(v) && v >= 0) out[row.email] = { hourlyRate: v };
+        });
+        return out;
+      }
+
+      function runClientChargeCalc() {
+        hideCcError();
+        clearTableMissingHighlights();
+        var check = validateCcTableComplete_();
+        if (!check.ok) {
+          showCcError(check.message);
+          applyTableMissingHighlights(check.missing);
+          return;
+        }
+        var btn = document.getElementById('ccCalcBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Calculating…';
+        }
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Calculate client charge';
+            }
+            if (!res) return;
+            if (res.error) {
+              showCcError(res.error);
+              return;
+            }
+            clearTableMissingHighlights();
+            renderClientChargeOut(res);
+          })
+          .withFailureHandler(function (err) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Calculate client charge';
+            }
+            showCcError(err && err.message ? err.message : String(err));
+          })
+          .clientChargeCalculatePay(collectClientChargeRowSettings(), collectCcManualRates());
+      }
+
+      function renderClientChargeOut(res) {
+        var el = document.getElementById('ccCalcOut');
+        if (!el) return;
+        var html = '';
+        html += '<div class="card"><h3>Client charge summary</h3>';
+        html += '<p class="payBig">Total: $' + esc(res.totalCharge) + '</p></div>';
+
+        html += '<div class="card"><h3>Charges by project</h3>';
+        if (!(res.projectChargeRows || []).length) {
+          html +=
+            '<p class="hint">No billable charge by project yet — confirm billable rows and tiers, then run calculate again.</p>';
+        } else {
+          html +=
+            '<table class="data"><thead><tr><th>Project</th><th class="num">Total charge ($)</th></tr></thead><tbody>';
+          (res.projectChargeRows || []).forEach(function (r) {
+            html += '<tr><td>' + esc(r.projectName) + '</td><td class="num">' + esc(r.totalCharge) + '</td></tr>';
+          });
+          html += '</tbody></table>';
+        }
+        html += '</div>';
+
+        html +=
+          '<div class="card chartRow"><h3>Project charge by geo (100% stacked)</h3>' +
+          '<p class="hint">Each bar is the full charge for that project. <b>Custom</b> is flat custom or discount $/hr. <b>Other (manual override)</b> appears in the legend only when some charge used a manual $/hr because geo/card lookup failed.</p>' +
+          '<div id="ccChartGeoStack" class="chartWrap"></div></div>';
+
+        html += '<div class="card"><h3>Charges by agent</h3>';
+        html += '<table class="data"><thead><tr>';
+        html +=
+          '<th>Email</th><th>Project</th><th>Sub</th><th class="num">Hours</th><th>Tier</th><th>Region</th><th class="num">$/hr</th><th class="num">Charge</th><th>Note</th>';
+        html += '</tr></thead><tbody>';
+        (function () {
+          var traces = res.traceRows || [];
+          var byEmail = {};
+          traces.forEach(function (r) {
+            var k = r.email != null ? String(r.email) : '';
+            if (!byEmail[k]) byEmail[k] = [];
+            byEmail[k].push(r);
+          });
+          Object.keys(byEmail)
+            .sort()
+            .forEach(function (em) {
+              var list = byEmail[em].slice().sort(function (a, b) {
+                var p = String(a.projectName || '').localeCompare(String(b.projectName || ''));
+                if (p !== 0) return p;
+                return String(a.subProject || '').localeCompare(String(b.subProject || ''));
+              });
+              var n = list.length;
+              list.forEach(function (r, i) {
+                html += '<tr>';
+                if (i === 0) {
+                  html += '<td rowspan="' + n + '">' + esc(em) + '</td>';
+                }
+                html += '<td>' + esc(r.projectName) + '</td>';
+                html += '<td>' + esc(r.subProject != null ? r.subProject : '') + '</td>';
+                html += '<td class="num">' + esc(r.hours) + '</td>';
+                html += '<td>' + esc(r.chargeTypeLabel || r.chargeType) + '</td>';
+                html += '<td>' + esc(r.geoTierLabel != null && r.geoTierLabel !== '' ? r.geoTierLabel : '—') + '</td>';
+                html += '<td class="num">' + esc(r.hourlyRate) + '</td>';
+                html += '<td class="num">' + esc(r.pay) + '</td>';
+                html += '<td>' + esc(r.note) + '</td>';
+                html += '</tr>';
+              });
+            });
+        })();
+        html += '</tbody></table></div>';
+
+        html += '<div class="card"><h3>Issues</h3>';
+        if (!(res.issues || []).length) {
+          html += '<p class="hint">None.</p>';
+        } else {
+          html +=
+            '<table class="data"><thead><tr><th>Project</th><th>Sub</th><th>Email</th><th class="num">Hours</th><th>Reason</th></tr></thead><tbody>';
+          (res.issues || []).forEach(function (r) {
+            html += '<tr class="warn">';
+            html += '<td>' + esc(r.projectName) + '</td>';
+            html += '<td>' + esc(r.subProject != null ? r.subProject : '') + '</td>';
+            html += '<td>' + esc(r.email) + '</td>';
+            html += '<td class="num">' + fmtHoursIssue2_(r.hours) + '</td>';
+            html += '<td>' + esc(r.reason) + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+        }
+        html += '</div>';
+
+        el.innerHTML = html;
+        setTimeout(function () {
+          ccDrawProjectGeoStack(res);
+        }, 100);
+      }
+
+      function showCcNoAccess(data) {
+        var root = document.getElementById('ccMainContent');
+        if (!root) return;
+        root.style.display = 'block';
+        var hint = '';
+        if (data && data.noAccessReason === 'no_session_email') {
+          hint =
+            '<p class="hint">Google did not provide an email for this session. Sign in with your work Google account or try incognito with a single account.</p>';
+        } else if (data && data.noAccessReason === 'not_on_list' && data.recognizedEmail) {
+          hint =
+            '<p class="hint">Signed in as <b>' +
+            esc(data.recognizedEmail) +
+            '</b> — add it to <code>META_MANAGER_EMAILS</code> in <code>Meta_Code.js</code> and redeploy.</p>';
+        } else {
+          hint =
+            '<p class="hint">Same manager list as Agent pay: <code>META_MANAGER_EMAILS</code> in <code>Meta_Code.js</code>.</p>';
+        }
+        root.innerHTML = '<div class="card"><h3>Access</h3>' + hint + '</div>';
+      }
+
+      function loadClientCharge() {
+        hideCcError();
+        var btn = document.getElementById('refreshBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+        }
+        var main = document.getElementById('ccMainContent');
+        if (main) main.style.display = 'none';
+        google.script.run
+          .withSuccessHandler(function (data) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Refresh';
+            }
+            if (!data) {
+              showCcError('No response');
+              return;
+            }
+            if (data.error) {
+              showCcError(data.error);
+              return;
+            }
+            if (data.noAccess) {
+              showCcNoAccess(data);
+              return;
+            }
+            renderClientCharge(data);
+          })
+          .withFailureHandler(function (err) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Refresh';
+            }
+            showCcError(err && err.message ? err.message : String(err));
+          })
+          .getClientChargeDashboardData();
+      }
+
+      function loadMeta() {
+        hideMetaError();
+        var btn = document.getElementById('refreshBtn');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+        }
+        var main = document.getElementById('mainContent');
+        if (main) main.style.display = 'none';
+        google.script.run
+          .withSuccessHandler(function (data) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Refresh';
+            }
+            if (!data) {
+              showMetaError('No response');
+              return;
+            }
+            if (data.error) {
+              showMetaError(data.error);
+              return;
+            }
+            if (data.noAccess) {
+              showNoAccessMeta(data);
+              return;
+            }
+            renderMeta(data);
+          })
+          .withFailureHandler(function (err) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Refresh';
+            }
+            var msg = err && (err.message || err.toString) ? err.message || err.toString() : 'Request failed.';
+            showMetaError(msg);
+          })
+          .getMetaDashboardData();
+      }
+
+      loadMeta();
+    </script>
+  </body>
+</html>
